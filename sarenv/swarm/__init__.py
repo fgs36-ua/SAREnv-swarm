@@ -15,6 +15,8 @@ Estructura:
     simulator.py      -> Motor principal del bucle de simulación
     metrics.py        -> Adaptador a PathEvaluator + métricas propias del enjambre
     terrain.py        -> Mapas de terreno: detección y transitabilidad
+    gama_network_server.py -> Servidor TCP para GAMA GUI (visualización 3D)
+    export.py         -> Exportación de datos para GAMA (CSV, GeoJSON)
 """
 
 from .config import SwarmConfig, AgentConfig, DroneConfig, RobotDogConfig
@@ -31,6 +33,10 @@ from .terrain import (
     build_detection_modifier_map,
     build_traversability_map,
 )
+from .export import export_scenario_for_gama
+
+# GamaNetworkServer no tiene dependencias externas.
+from .gama_network_server import GamaNetworkServer
 
 __all__ = [
     "SwarmConfig",
@@ -51,4 +57,6 @@ __all__ = [
     "TRAVERSABILITY_COSTS",
     "build_detection_modifier_map",
     "build_traversability_map",
+    "export_scenario_for_gama",
+    "GamaNetworkServer",
 ]
