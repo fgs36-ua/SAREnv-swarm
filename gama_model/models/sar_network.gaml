@@ -39,7 +39,8 @@ global skills: [network] {
     int victims_total <- 0;
     bool simulation_ended <- false;
     bool init_done <- false;
-    string last_status <- "Esperando conexion...";
+    bool connected_to_python <- false;
+    string last_status <- "Pulsa Play para conectar a Python...";
 
     init {
         // Cargar heatmap como field
@@ -53,11 +54,21 @@ global skills: [network] {
         exploration_field <- field(exploration_matrix);
         shape <- rectangle(grid_cols, grid_rows) translated_by {grid_cols / 2.0, grid_rows / 2.0};
 
-        // Conectar al servidor Python como cliente TCP
-        write "** SAR Network v8 — Conectando a " + python_host + ":" + string(python_port) + "...";
+        // NOTA: la conexión TCP se hace en el primer cycle (reflex
+        // connect_to_python), no aquí. Esto actúa como handshake:
+        // Python no recibe nada hasta que el usuario pulse Play.
+        write "** SAR Network v8 — Listo. Pulsa Play para conectar a " + python_host + ":" + string(python_port);
+    }
+
+    // Handshake: la conexión TCP se establece al pulsar Play (cuando
+    // los reflexes empiezan a correr). Python desbloquea su
+    // wait_for_gama() en ese momento y envía INIT.
+    reflex connect_to_python when: !connected_to_python {
+        write "** Conectando a Python en " + python_host + ":" + string(python_port) + "...";
         do connect to: python_host protocol: "tcp_client" port: python_port raw: true with_name: "python";
-        write "** v8 Conectado! Mesh plano, exploración local.";
+        connected_to_python <- true;
         last_status <- "Conectado. Esperando init...";
+        write "** v8 Conectado.";
     }
 
     // --- Reflex: leer y procesar mensajes TCP cada ciclo ---

@@ -33,6 +33,7 @@ def export_heatmap_csv(
     heatmap: np.ndarray,
     output_path: str | Path,
     normalize: bool = True,
+    gamma: float = 1.0,
 ) -> Path:
     """Exporta el heatmap de probabilidad como CSV para GAMA.
 
@@ -44,6 +45,10 @@ def export_heatmap_csv(
         Ruta del archivo CSV de salida.
     normalize : bool
         Si True, normaliza a [0, 1].
+    gamma : float
+        Corrección gamma aplicada tras normalizar (``v ** gamma``). Valores
+        ``< 1`` realzan los valores bajos (heatmap se ve más extendido);
+        ``> 1`` los apaga. ``1.0`` (por defecto) no aplica corrección.
 
     Returns
     -------
@@ -58,6 +63,10 @@ def export_heatmap_csv(
         pmax = data.max()
         if pmax > 0:
             data = data / pmax
+
+    if gamma != 1.0 and gamma > 0:
+        # Clamp a [0, 1] por seguridad antes del power
+        data = np.clip(data, 0.0, 1.0) ** float(gamma)
 
     with open(output_path, "w", newline="") as f:
         writer = csv.writer(f)
@@ -176,6 +185,7 @@ def export_scenario_for_gama(
     environment: SwarmEnvironment,
     output_dir: str | Path,
     victim_cells: set[tuple[int, int]] | None = None,
+    heatmap_gamma: float = 1.0,
 ) -> dict[str, Path]:
     """Exporta todos los datos de un escenario para GAMA.
 
@@ -209,6 +219,7 @@ def export_scenario_for_gama(
 
     files["heatmap"] = export_heatmap_csv(
         dataset_item.heatmap, output_dir / "heatmap.csv",
+        gamma=heatmap_gamma,
     )
 
     files["features"] = export_features_geojson(

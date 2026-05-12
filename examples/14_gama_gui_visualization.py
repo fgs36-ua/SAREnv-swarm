@@ -53,7 +53,7 @@ from sarenv.core.lost_person import LostPersonLocationGenerator
 from sarenv.swarm.config import SwarmConfig
 from sarenv.swarm.environment import SwarmEnvironment
 from sarenv.swarm.export import export_scenario_for_gama
-from sarenv.swarm.gama_network_server import GamaNetworkServer
+from sarenv.swarm.gama_network_server import GamaDisconnected, GamaNetworkServer
 from sarenv.swarm.simulator import SwarmSimulator
 
 logging.basicConfig(
@@ -73,9 +73,18 @@ BASE_BUDGET_PER_KM2_RADIUS = 1_200
 #  Carga de escenario
 # ═══════════════════════════════════════════════════════════════════
 
-def load_scenario_item(scenario_id: int) -> SARDatasetItem | None:
-    """Carga un escenario individual como SARDatasetItem."""
-    scenario_dir = DATASET_DIR / str(scenario_id)
+def load_scenario_item(scenario_id: int, dataset_dir: Path | None = None) -> SARDatasetItem | None:
+    """Carga un escenario individual como SARDatasetItem.
+
+    Si ``dataset_dir`` apunta a un dataset "plano" (con ``features.geojson``
+    en la raíz), ignora ``scenario_id`` y carga directamente desde esa carpeta.
+    En caso contrario, carga ``dataset_dir/scenario_id/`` (o ``DATASET_DIR/scenario_id/``).
+    """
+    base = dataset_dir or DATASET_DIR
+    if (base / "features.geojson").exists():
+        scenario_dir = base
+    else:
+        scenario_dir = base / str(scenario_id)
     features_path = scenario_dir / "features.geojson"
     heatmap_path = scenario_dir / "heatmap.npy"
 
@@ -185,6 +194,7 @@ def run_with_gama_gui(
         environment=env,
         output_dir=GAMA_INCLUDES_DIR,
         victim_cells=victim_cells,
+        heatmap_gamma=args.heatmap_gamma,
     )
     log.info("Datos exportados a %s: %s", GAMA_INCLUDES_DIR, list(exported.keys()))
 
@@ -208,7 +218,11 @@ def run_with_gama_gui(
             return {}
 
         # 6. Enviar datos de inicialización
-        server.send_init(env, sim.agents, victim_cells)
+        try:
+            server.send_init(env, sim.agents, victim_cells)
+        except GamaDisconnected:
+            log.warning("GAMA desconectado durante init. Abortando.")
+            return {}
         log.info("Init enviado a GAMA.")
 
         # 7. Bucle de simulación tick a tick
@@ -233,14 +247,18 @@ def run_with_gama_gui(
             found_so_far.update(new_found)
 
             # Enviar tick a GAMA
-            server.send_tick(
-                snapshot, sim.agents, env,
-                found_victim_cells=new_found if new_found else None,
-            )
+            try:
+                server.send_tick(
+                    snapshot, sim.agents, env,
+                    found_victim_cells=new_found if new_found else None,
+                )
 
-            # Actualizar feromonas si toca
-            if pheromone_interval > 0 and (step_num + 1) % pheromone_interval == 0:
-                server.send_pheromone(sim.agents, GAMA_INCLUDES_DIR)
+                # Actualizar feromonas si toca
+                if pheromone_interval > 0 and (step_num + 1) % pheromone_interval == 0:
+                    server.send_pheromone(sim.agents, GAMA_INCLUDES_DIR)
+            except GamaDisconnected:
+                log.warning("GAMA desconectado en tick %d. Deteniendo simulación.", step_num + 1)
+                break
 
             # Log periódico
             if (step_num + 1) % 100 == 0:
@@ -270,7 +288,10 @@ def run_with_gama_gui(
         log.info("=" * 60)
 
         # Enviar señal de fin
-        server.send_end()
+        try:
+            server.send_end()
+        except GamaDisconnected:
+            pass
 
         return {
             "ticks": sim.timestep,
@@ -294,6 +315,8 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument("--scenario", type=int, default=1,
                    help="ID del escenario (1-60, default: 1)")
+    p.add_argument("--dataset", type=str, default=None,
+                   help="Ruta al dataset (default: sarenv_dataset). Ej: maigmo_dataset")
     p.add_argument("--seed", type=int, default=42,
                    help="Semilla aleatoria (default: 42)")
     p.add_argument("--num-drones", type=int, default=5,
@@ -318,16 +341,22 @@ def parse_args() -> argparse.Namespace:
                    help="Delay en ms entre ticks (default: 50)")
     p.add_argument("--pheromone-interval", type=int, default=25,
                    help="Cada cuántos ticks actualizar feromonas (default: 25)")
+    p.add_argument("--heatmap-gamma", type=float, default=1.0,
+                   help="Corrección gamma del heatmap exportado a GAMA. "
+                        "<1 realza valores bajos (heatmap más extendido), >1 los apaga. "
+                        "Default: 1.0 (sin corrección)")
     return p.parse_args()
 
 
 def main() -> None:
     args = parse_args()
-    log.info("Cargando escenario %d...", args.scenario)
+    dataset_dir = Path(args.dataset) if args.dataset else None
+    ds_label = args.dataset or f"sarenv_dataset/{args.scenario}"
+    log.info("Cargando escenario desde %s...", ds_label)
 
-    item = load_scenario_item(args.scenario)
+    item = load_scenario_item(args.scenario, dataset_dir=dataset_dir)
     if item is None:
-        log.error("No se pudo cargar el escenario %d", args.scenario)
+        log.error("No se pudo cargar el escenario desde %s", ds_label)
         sys.exit(1)
 
     log.info(

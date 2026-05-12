@@ -38,6 +38,7 @@ from __future__ import annotations
 import csv
 import io
 import logging
+import os
 import socket
 import threading
 import time
@@ -51,6 +52,10 @@ if TYPE_CHECKING:
     from .environment import SwarmEnvironment
 
 logger = logging.getLogger(__name__)
+
+
+class GamaDisconnected(ConnectionError):
+    """Levantada cuando GAMA cierra la conexión durante un envío."""
 
 
 class GamaNetworkServer:
@@ -113,6 +118,57 @@ class GamaNetworkServer:
             logger.error("Timeout esperando conexión de GAMA.")
         return connected
 
+    def wait_for_ready(self, timeout: float = 600.0) -> bool:
+        """Bloquea hasta recibir la señal ``READY`` desde GAMA.
+
+        GAMA envía ``READY`` cuando el usuario pulsa Play en la GUI.
+        Esto permite que Python no empiece a publicar datos hasta que el
+        usuario haya iniciado el experimento.
+
+        Parameters
+        ----------
+        timeout : float
+            Tiempo máximo de espera en segundos.
+
+        Returns
+        -------
+        bool
+            True si se recibió ``READY``, False si timeout o desconexión.
+        """
+        if not self._client_socket:
+            logger.error("wait_for_ready: GAMA no conectado.")
+            return False
+
+        logger.info("Esperando señal READY de GAMA (pulsa Play en la GUI)...")
+        deadline = time.monotonic() + timeout
+        buf = b""
+        # Usamos el timeout corto del socket (1 s) para hacer polling
+        # respetando el deadline global.
+        while time.monotonic() < deadline:
+            try:
+                chunk = self._client_socket.recv(4096)
+            except socket.timeout:
+                continue
+            except OSError as e:
+                logger.warning("Error leyendo de GAMA: %s", e)
+                return False
+            if not chunk:
+                logger.warning("GAMA cerró la conexión antes de enviar READY.")
+                return False
+            buf += chunk
+            # GAMA envía mensajes terminados en '~' (con o sin '\n')
+            text = buf.decode("utf-8", errors="ignore")
+            for token in text.replace("\n", "").replace("\r", "").split("~"):
+                token = token.strip()
+                if token == "READY":
+                    logger.info("READY recibido de GAMA. Iniciando simulación.")
+                    return True
+                if token:
+                    logger.debug("Mensaje GAMA→Python ignorado: %r", token)
+            buf = b""
+        logger.error("Timeout esperando READY de GAMA.")
+        return False
+
     def stop(self) -> None:
         """Detiene el servidor y cierra todas las conexiones."""
         self._running = False
@@ -149,13 +205,28 @@ class GamaNetworkServer:
         num_dogs = sum(1 for a in agents if a.agent_type == "robot_dog")
         num_victims = len(victim_cells)
 
+        # Helper: micro-sleep para evitar saturar el mailbox de GAMA cuando
+        # se envían cientos de líneas seguidas (víctimas en datasets grandes).
+        chunk_size = 25
+        chunk_pause = 0.05  # 50 ms cada 25 líneas
+        sent = 0
+
+        def _flush_chunk(force: bool = False) -> None:
+            nonlocal sent
+            sent += 1
+            if force or sent % chunk_size == 0:
+                time.sleep(chunk_pause)
+
         # Línea cabecera — enviar cols/rows para que GAMA dimensione su mundo
         self._send_line(
             f"INIT|{num_drones}|{num_dogs}|{num_victims}"
             f"|{grid.cols}|{grid.rows}"
         )
+        # Pausa extra tras el INIT para que GAMA dimensione el mundo antes de
+        # empezar a recibir agentes.
+        time.sleep(0.3)
 
-        # Drones
+        # Drones y perros
         drone_idx = 0
         dog_idx = 0
         for agent in agents:
@@ -168,16 +239,25 @@ class GamaNetworkServer:
             else:
                 self._send_line(f"DOG|{dog_idx}|{x:.2f}|{y:.2f}|{budget}")
                 dog_idx += 1
+            _flush_chunk()
+
+        # Pausa antes del bloque de víctimas
+        time.sleep(0.2)
 
         # Víctimas
         for i, (r, c) in enumerate(sorted(victim_cells)):
             x, y = c + 0.5, r + 0.5  # grid pixel coords
             self._send_line(f"VICTIM|{i}|{x:.2f}|{y:.2f}")
+            _flush_chunk()
+
+        # Asegurar que el último chunk se ha drenado antes de INIT_END
+        time.sleep(chunk_pause)
 
         # Fin de init
         self._send_line("INIT_END")
-        # Dar tiempo a GAMA para procesar la ráfaga de init
-        time.sleep(1.0)
+        # Margen amplio para que GAMA termine de procesar el mailbox antes
+        # de empezar a recibir TICKs.
+        time.sleep(2.0)
         logger.info("Init enviado (%d drones, %d dogs, %d victims).",
                      num_drones, num_dogs, num_victims)
 
@@ -230,7 +310,13 @@ class GamaNetworkServer:
         fused = self._downsample_max(fused, max_dim=max_dim)
 
         csv_path = includes_dir / "exploration_field.csv"
-        self._write_csv(fused, csv_path)
+        try:
+            self._write_csv(fused, csv_path)
+        except OSError as e:
+            # GAMA puede tener el CSV abierto/mapeado para lectura;
+            # un fallo transitorio no debe matar la simulación.
+            logger.warning("No se pudo escribir %s: %s. Saltando feromona.", csv_path, e)
+            return
 
         self._send_line("PHEROMONE")
 
@@ -276,7 +362,19 @@ class GamaNetworkServer:
             raise RuntimeError("GAMA no conectado.")
         data = line + "~\n"
         with self._lock:
-            self._client_socket.sendall(data.encode("utf-8"))
+            try:
+                self._client_socket.sendall(data.encode("utf-8"))
+            except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError, OSError) as e:
+                # GAMA cerró la conexión (Stop, ventana cerrada, crash...).
+                # Marcamos el cliente como desconectado y dejamos de intentarlo.
+                logger.warning("GAMA desconectado durante envío: %s", e)
+                try:
+                    self._client_socket.close()
+                except OSError:
+                    pass
+                self._client_socket = None
+                self._gama_connected.clear()
+                raise GamaDisconnected(str(e)) from e
 
     @staticmethod
     def _downsample_max(arr: np.ndarray, max_dim: int = 100) -> np.ndarray:
@@ -292,9 +390,38 @@ class GamaNetworkServer:
 
     @staticmethod
     def _write_csv(arr: np.ndarray, path: Path) -> None:
-        """Escribe ndarray 2D como CSV."""
+        """Escribe ndarray 2D como CSV de forma atómica.
+
+        Usa un fichero temporal en el mismo directorio + ``os.replace``
+        para evitar errores de I/O cuando GAMA tiene el CSV abierto para
+        lectura. Reintenta varias veces ante OSError transitorios
+        (Errno 22/13 típicos en Windows por bloqueos compartidos).
+        """
         buf = io.StringIO()
         writer = csv.writer(buf)
         for row in arr:
             writer.writerow([f"{v:.6g}" for v in row])
-        path.write_text(buf.getvalue(), encoding="utf-8")
+        payload = buf.getvalue().encode("utf-8")
+
+        tmp_path = path.with_suffix(path.suffix + f".tmp.{os.getpid()}")
+        last_err: OSError | None = None
+        for attempt in range(5):
+            try:
+                with open(tmp_path, "wb") as f:
+                    f.write(payload)
+                    f.flush()
+                    os.fsync(f.fileno())
+                os.replace(tmp_path, path)
+                return
+            except OSError as e:
+                last_err = e
+                try:
+                    if tmp_path.exists():
+                        tmp_path.unlink()
+                except OSError:
+                    pass
+                time.sleep(0.05 * (attempt + 1))
+        # Si tras 5 intentos sigue fallando, propagamos para que el
+        # caller decida (send_pheromone lo captura y lo loguea).
+        assert last_err is not None
+        raise last_err
