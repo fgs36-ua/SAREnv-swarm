@@ -71,6 +71,7 @@ class SwarmComparativeEvaluator:
         presence_weight: float = 0.05,
         presence_diffusion_sigma: float = 0.5,
         pheromone_attenuation: float = 0.1,
+        dispersal_weight: float = 0.3,
     ) -> None:
         self.dataset_dir = dataset_dir
         self.size = size
@@ -85,6 +86,7 @@ class SwarmComparativeEvaluator:
         self.presence_weight = presence_weight
         self.presence_diffusion_sigma = presence_diffusion_sigma
         self.pheromone_attenuation = pheromone_attenuation
+        self.dispersal_weight = dispersal_weight
 
         # Configuraciones de enjambre a probar (cada una es un escenario)
         # Si no se pasan, se usa una configuración por defecto
@@ -183,6 +185,7 @@ class SwarmComparativeEvaluator:
             c.anti_revisit_penalty = self.anti_revisit_penalty
             c.presence_weight = self.presence_weight
             c.pheromone_attenuation = self.pheromone_attenuation
+            c.dispersal_weight = self.dispersal_weight
 
         config = SwarmConfig(
             num_drones=num_drones,
@@ -250,6 +253,7 @@ class SwarmComparativeEvaluator:
             c.anti_revisit_penalty = self.anti_revisit_penalty
             c.presence_weight = self.presence_weight
             c.pheromone_attenuation = self.pheromone_attenuation
+            c.dispersal_weight = self.dispersal_weight
 
         config = SwarmConfig(
             num_drones=num_drones,

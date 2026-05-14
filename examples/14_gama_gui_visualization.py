@@ -184,6 +184,7 @@ def run_with_gama_gui(
         cfg.anti_revisit_penalty = args.anti_revisit_penalty
         cfg.presence_weight = args.presence_weight
         cfg.pheromone_attenuation = args.pheromone_attenuation
+        cfg.dispersal_weight = args.dispersal_weight
 
     sim = SwarmSimulator(env, config, seed=args.seed)
     log.info(
@@ -193,6 +194,10 @@ def run_with_gama_gui(
     log.info(
         "Presence pheromone: weight=%.4f, diffusion_sigma=%.2f, attenuation=%.3f",
         args.presence_weight, args.presence_diffusion_sigma, args.pheromone_attenuation,
+    )
+    log.info(
+        "Dispersal (Boids-separation táctica): weight=%.3f",
+        args.dispersal_weight,
     )
     log.info(
         "Simulador creado: %d drones + %d dogs, budget=%.0f m, grid=%d×%d",
@@ -432,6 +437,8 @@ def parse_args() -> argparse.Namespace:
                    help="Sigma de la difusión gaussiana del campo de presencia (default 0.5; baseline=2.0). Valores bajos preservan picos locales y crean gradiente.")
     p.add_argument("--pheromone-attenuation", type=float, default=0.1,
                    help="Atenuación estigmérgica del prior: prob_eff = prob*exp(-α*presence). Default 0.1 (presence=10 → prob/2.7; presence=30 → prob~0). 0=OFF.")
+    p.add_argument("--dispersal-weight", type=float, default=0.3,
+                   help="Dispersión por negociación (Boids-separation táctica): premia ir en dirección opuesta al centroide de peers vistos por gossip. Default 0.3, 0=OFF. Ver docs/17_negociacion_dispersion.md.")
     p.add_argument("--heatmap-gamma", type=float, default=1.0,
                    help="Corrección gamma del heatmap exportado a GAMA. "
                         "<1 realza valores bajos (heatmap más extendido), >1 los apaga. "

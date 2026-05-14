@@ -48,6 +48,21 @@ class AgentConfig:
     anti_revisit_window: int = 0       # nº de ticks recientes a penalizar
     anti_revisit_penalty: float = 0.0  # magnitud de la penalización (lineal en window)
 
+    # Dispersión por negociación (Reynolds 1987 / Boids-separation a escala
+    # táctica): cuando un agente recibe gossip de un peer, registra su
+    # posición. En el scoring suma un término que premia ir en dirección
+    # opuesta al centroide de los peers vistos recientemente. Así se
+    # reparten el espacio sin coordinador, solo con info local recibida
+    # por gossip directo. Default 0 = OFF (compatibilidad baselines).
+    # Ver docs/17_negociacion_dispersion.md.
+    dispersal_weight: float = 0.0      # peso del término de dispersión
+    peer_position_ttl: int = 50        # ticks que sigo recordando la pos de un peer
+    # Decaimiento del término de dispersión con la distancia al centroide:
+    # weight_eff = dispersal_weight / (1 + dist_to_centroid / falloff).
+    # Convierte la "huida" en "tendencia": cerca del cluster empuja fuerte,
+    # lejos se desvanece. Default 30 celdas (~900 m a 30 m/celda).
+    dispersal_falloff: float = 30.0
+
 
 @dataclass
 class DroneConfig(AgentConfig):
@@ -82,7 +97,12 @@ class RobotDogConfig(AgentConfig):
     sensor_range: float = 20.0   # radio de detección a nivel de suelo (metros)
     max_slope: float = 30.0      # pendiente máxima transitable (grados)
     speed_ms: float = 3.0        # velocidad de crucero m/s (informativo)
-    comm_range: float = 100.0    # radio menor que los drones (al ir por tierra)
+    # Igualado al dron (500 m): un perro robot SAR real lleva radio
+    # equivalente. El valor previo (100 m) en mapas de 10 km hacía
+    # casi imposible cualquier gossip dog-X (probabilidad de coincidir
+    # < 100 m con un peer ≪ 1%). Sin esta paridad, los perros eran
+    # islas de información.
+    comm_range: float = 500.0
 
     @property
     def detection_radius(self) -> float:

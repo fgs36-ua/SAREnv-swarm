@@ -75,6 +75,12 @@ class LocalKnowledgeMap:
         # Buffer de actualizaciones indexado por (row, col, layer)
         self._latest_updates: Dict[Tuple[int, int, str], MapUpdate] = {}
 
+        # Memoria de posiciones de peers vistos por gossip directo
+        # (Reynolds 1987 / Boids-separation a escala táctica). Se usa
+        # para calcular el vector de huida del centroide en el scoring.
+        # Mapea peer_id -> (position, timestamp). Caduca con TTL.
+        self.peer_positions: Dict[str, Tuple[Tuple[int, int], int]] = {}
+
     # -- Observación --
 
     def record_observation(
@@ -166,6 +172,49 @@ class LocalKnowledgeMap:
         if other_field.shape != self.presence_field.shape:
             return
         np.maximum(self.presence_field, other_field, out=self.presence_field)
+
+    # ------------------------------------------------------------------
+    # Memoria de posiciones de peers (Boids-separation táctica)
+    # ------------------------------------------------------------------
+
+    def record_peer_position(
+        self,
+        peer_id: str,
+        position: Tuple[int, int],
+        timestamp: int,
+    ) -> None:
+        """Registra la última posición conocida de un peer (ping directo).
+
+        Solo se actualiza si el timestamp es más reciente que el almacenado.
+        No se relay-ea a terceros: cada agente solo conoce posiciones de
+        peers con los que ha hablado directamente.
+        """
+        prev = self.peer_positions.get(peer_id)
+        if prev is None or timestamp >= prev[1]:
+            self.peer_positions[peer_id] = (position, timestamp)
+
+    def get_active_peer_positions(
+        self,
+        now: int,
+        ttl: int,
+    ) -> list[Tuple[int, int]]:
+        """Devuelve posiciones de peers cuyo último ping no ha caducado.
+
+        Las entradas caducadas se eliminan perezosamente para no acumular
+        memoria en simulaciones largas.
+        """
+        if not self.peer_positions:
+            return []
+        active: list[Tuple[int, int]] = []
+        expired: list[str] = []
+        for pid, (pos, ts) in self.peer_positions.items():
+            if (now - ts) <= ttl:
+                active.append(pos)
+            else:
+                expired.append(pid)
+        for pid in expired:
+            del self.peer_positions[pid]
+        return active
 
     def get_updates_since(self, since_timestep: int) -> list[MapUpdate]:
         """Devuelve actualizaciones generadas desde since_timestep."""

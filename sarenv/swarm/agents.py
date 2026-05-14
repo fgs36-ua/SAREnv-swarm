@@ -213,6 +213,31 @@ class BaseSwarmAgent:
         # Pre-calcular posiciones de vecinos para no recalcular cada vez
         neighbor_positions = [n.position for n in perception.neighbors]
 
+        # Vector de huida del centroide de peers vistos recientemente
+        # (Reynolds 1987 / Boids-separation a escala táctica). Se calcula
+        # UNA VEZ por tick (no por celda) y se reutiliza dentro del loop.
+        # Si dispersal_weight=0 o no hay peers activos, el término se anula.
+        dispersal_weight = self.config.dispersal_weight
+        escape_unit = (0.0, 0.0)
+        dispersal_weight_eff = 0.0
+        if dispersal_weight > 0:
+            peer_positions = self.knowledge.get_active_peer_positions(
+                timestep, self.config.peer_position_ttl,
+            )
+            if peer_positions:
+                cr = sum(p[0] for p in peer_positions) / len(peer_positions)
+                cc = sum(p[1] for p in peer_positions) / len(peer_positions)
+                dr = self.position[0] - cr
+                dc = self.position[1] - cc
+                norm = float(np.hypot(dr, dc))
+                if norm > 1e-9:
+                    escape_unit = (dr / norm, dc / norm)
+                    # Decaimiento por distancia: cerca del centroide empuja
+                    # fuerte (≈ dispersal_weight), lejos se desvanece. Esto
+                    # convierte la huida brusca en una tendencia suave.
+                    falloff = max(self.config.dispersal_falloff, 1e-6)
+                    dispersal_weight_eff = dispersal_weight / (1.0 + norm / falloff)
+
         for cell in reachable:
             prob = self.knowledge.probability_map[cell[0], cell[1]]
             # Estigmergia (Payton 2001 / Parunak 2002): feromona de presencia
@@ -267,6 +292,22 @@ class BaseSwarmAgent:
             # zonas sin interés.
             if cell not in self.cells_ever_explored and prob > 0:
                 score += self.config.exploration_weight
+            # Dispersión por negociación (Boids-separation táctica): premia
+            # celdas alineadas con el vector de huida del centroide de peers
+            # vistos por gossip. cos_align ∈ [-1, 1] => +w en celda hacia
+            # afuera, -w hacia el centroide. Ortogonal a feromonas: maneja
+            # dispersión a escala TACTICA (vecinos directos en gossip), no
+            # estigmérgica (cualquiera que pasó por la celda).
+            if dispersal_weight_eff > 0:
+                cdr = cell[0] - self.position[0]
+                cdc = cell[1] - self.position[1]
+                cnorm = float(np.hypot(cdr, cdc))
+                if cnorm > 1e-9:
+                    cos_align = (
+                        (cdr / cnorm) * escape_unit[0]
+                        + (cdc / cnorm) * escape_unit[1]
+                    )
+                    score += dispersal_weight_eff * cos_align
             # Anti-revisit corto (rompe oscilaciones A-B-A-B observadas en
             # baseline). El decaimiento exponencial de novelty con tau=200
             # satura al floor 0.05 durante los ~30 primeros ticks tras

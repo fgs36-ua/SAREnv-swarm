@@ -27,11 +27,17 @@ global skills: [network] {
     file heatmap_file <- csv_file("../includes/heatmap.csv");
 
     // --- Fields para overlay ---
-    field probability_field;
-    field exploration_field;
-    matrix exploration_matrix;
-    int grid_cols;
-    int grid_rows;
+    matrix prob_matrix <- matrix(heatmap_file);
+    field probability_field <- field(prob_matrix);
+    int grid_cols <- prob_matrix.columns;
+    int grid_rows <- prob_matrix.rows;
+    matrix exploration_matrix <- 0.0 as_matrix {grid_cols, grid_rows};
+    field exploration_field <- field(exploration_matrix);
+
+    // Redefinir el mundo al tamaño del heatmap (cols × rows). Hacerlo
+    // como atributo (no en init) evita el warning "Dynamically changing
+    // the shape of the world can lead to unexpected results".
+    geometry shape <- rectangle(grid_cols, grid_rows) translated_by {grid_cols / 2.0, grid_rows / 2.0};
 
     // --- Enlaces de comunicación entre agentes (refrescados cada tick) ---
     list<list<point>> comm_links <- [];
@@ -46,17 +52,6 @@ global skills: [network] {
     string last_status <- "Pulsa Play para conectar a Python...";
 
     init {
-        // Cargar heatmap como field
-        matrix prob_matrix <- matrix(heatmap_file);
-        probability_field <- field(prob_matrix);
-
-        // Ajustar el mundo al tamaño del heatmap (cols × rows)
-        grid_cols <- prob_matrix.columns;
-        grid_rows <- prob_matrix.rows;
-        exploration_matrix <- 0.0 as_matrix {grid_cols, grid_rows};
-        exploration_field <- field(exploration_matrix);
-        shape <- rectangle(grid_cols, grid_rows) translated_by {grid_cols / 2.0, grid_rows / 2.0};
-
         // NOTA: la conexión TCP se hace en el primer cycle (reflex
         // connect_to_python), no aquí. Esto actúa como handshake:
         // Python no recibe nada hasta que el usuario pulse Play.
@@ -264,15 +259,16 @@ species drone {
 
     aspect default {
         if (is_active) {
-            draw triangle(10) color: #red;
-            draw circle(5) color: rgb(255, 0, 0, 40);
+            // Drone: círculo cyan (los dogs son cuadrados cyan; la forma
+            // basta para diferenciarlos sin necesidad de color distinto).
+            draw circle(5) color: #cyan border: #white;
         } else {
-            // Drone inactivo (presupuesto agotado): X gris visible
-            draw triangle(8) color: rgb(80, 80, 80, 220) border: rgb(180, 180, 180, 200);
+            // Drone inactivo (presupuesto agotado): círculo gris visible
+            draw circle(4) color: rgb(40, 80, 90, 220) border: rgb(0, 180, 200, 180);
         }
 
         if (length(trail) > 1) {
-            draw polyline(trail) color: rgb(255, 100, 100, 180) width: 0.4;
+            draw polyline(trail) color: rgb(0, 200, 230, 180) width: 0.4;
         }
     }
 }
@@ -363,7 +359,7 @@ experiment sar_gui_network type: gui {
         }
 
         // Panel de métricas
-        display metrics type: 2d refresh: every(5 #cycles) {
+        display metrics type: image refresh: every(5 #cycles) {
             chart "Victimas encontradas" type: series {
                 data "Encontradas" value: victims_found color: #green;
                 data "Total" value: victims_total color: #yellow;

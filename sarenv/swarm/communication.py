@@ -66,3 +66,15 @@ class CommunicationProtocol:
         # agentes ven la misma feromona y la evaporarán por separado.
         agent_a.knowledge.merge_presence(agent_b.knowledge.presence_field)
         agent_b.knowledge.merge_presence(agent_a.knowledge.presence_field)
+
+        # Ping directo de posición (Boids-separation táctica): cada agente
+        # registra dónde estaba el otro AHORA. Sin relay a terceros: si A
+        # tenía info de C vista hace 20 ticks, no se la pasa a B (la posición
+        # de C ya estaría obsoleta). Esto alimenta el término de dispersión
+        # del scoring (ver agents.py + docs/17_negociacion_dispersion.md).
+        agent_a.knowledge.record_peer_position(
+            agent_b.id, agent_b.position, current_timestep,
+        )
+        agent_b.knowledge.record_peer_position(
+            agent_a.id, agent_a.position, current_timestep,
+        )
