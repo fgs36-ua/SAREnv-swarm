@@ -31,6 +31,13 @@ class AgentConfig:
     # (+7.1% prob_coverage vs 0.0, +5.2% eff en maigmo).
     # Estigmergia pura (Payton 2001 / Howard et al. 2002 / Parunak 2002).
     presence_weight: float = 0.01
+    # Atenuación estigmérgica del prior (Payton 2001 / Parunak 2002):
+    # prob_eff = prob * exp(-pheromone_attenuation * presence_field).
+    # En vez de competir como término separado, la feromona REDUCE la
+    # probabilidad percibida → el mapa adquiere un agujero en zonas
+    # saturadas y el gradiente greedy apunta naturalmente hacia afuera.
+    # Default 0.0 = OFF (compatibilidad con baselines previos).
+    pheromone_attenuation: float = 0.0
     alert_threshold: float = 0.5       # intensidad mínima de alerta para investigar
     return_safety_factor: float = 1.2  # margen de seguridad para vuelta a base
     # Anti-revisit corto: penaliza con fuerza las celdas visitadas en los

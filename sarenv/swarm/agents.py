@@ -215,6 +215,15 @@ class BaseSwarmAgent:
 
         for cell in reachable:
             prob = self.knowledge.probability_map[cell[0], cell[1]]
+            # Estigmergia (Payton 2001 / Parunak 2002): feromona de presencia
+            # ATENÚA el prior. Una zona muy pisada deja de "verse" como
+            # probable → el mapa percibido tiene un agujero en el pozo
+            # saturado, y el gradiente greedy local apunta hacia afuera
+            # de forma natural sin necesidad de términos repulsivos extra.
+            attn = self.config.pheromone_attenuation
+            if attn > 0:
+                pres = float(self.knowledge.presence_field[cell[0], cell[1]])
+                prob = prob * np.exp(-attn * pres)
             novelty = 1.0 - self.knowledge.exploration_map[cell[0], cell[1]]
 
             # Penalización por celdas que NOSOTROS ya visitamos: decaimiento
@@ -251,7 +260,7 @@ class BaseSwarmAgent:
             # difumina sola si los depositantes desaparecen.
             pw = self.config.presence_weight
             if pw > 0:
-                score -= pw * float(self.env.presence_field[cell[0], cell[1]])
+                score -= pw * float(self.knowledge.presence_field[cell[0], cell[1]])
             # Bonus aditivo por exploración: premia celdas no visitadas
             # con probabilidad > 0 para equilibrar explotación vs exploración.
             # Solo aplica a celdas con prob > 0 para no gastar budget en

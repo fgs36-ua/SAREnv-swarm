@@ -58,6 +58,14 @@ class LocalKnowledgeMap:
         # Feromona de alerta: 0.0 = nada, cuanto mayor, más interesante
         self.alert_map = np.zeros_like(self.probability_map, dtype=np.float32)
 
+        # Feromona de presencia LOCAL (estigmergia swarm pura, sin estado
+        # global en el entorno): cada agente mantiene su propia copia,
+        # deposita en su celda actual cada tick y la evapora/difunde por
+        # su cuenta. El gossip propaga el campo a otros agentes en rango
+        # mediante merge ``np.maximum`` (info-pesimista: si alguno sabe
+        # que una zona está pisada, los demás también).
+        self.presence_field = np.zeros_like(self.probability_map, dtype=np.float32)
+
         # Diccionario de celdas exploradas conocidas (propias + gossip).
         # Mapea celda -> timestamp de última observación conocida.
         # Caduca tras GOSSIP_EXPIRY_TICKS para permitir re-exploración a largo plazo.
@@ -117,6 +125,47 @@ class LocalKnowledgeMap:
             self._latest_updates[(r, c, "alert")] = update
 
     # -- Helpers de gossip (Fase 3 los usará mucho más) --
+
+    # ------------------------------------------------------------------
+    # Feromona de presencia LOCAL (swarm puro, gossip-merged)
+    # ------------------------------------------------------------------
+
+    def deposit_presence(self, row: int, col: int, amount: float = 1.0) -> None:
+        """Deposita ``amount`` en la celda (row, col) del campo local."""
+        h, w = self.presence_field.shape
+        if 0 <= row < h and 0 <= col < w:
+            self.presence_field[row, col] += float(amount)
+
+    def decay_presence(
+        self,
+        evaporation_rate: float = 0.05,
+        diffusion_sigma: float = 0.0,
+        diffuse_now: bool = False,
+    ) -> None:
+        """Evapora (y opcionalmente difunde) el campo local de presencia."""
+        if evaporation_rate > 0:
+            self.presence_field *= (1.0 - float(evaporation_rate))
+        if diffuse_now and diffusion_sigma > 0:
+            try:
+                from scipy.ndimage import gaussian_filter as _gf
+            except ImportError:
+                return
+            self.presence_field = _gf(
+                self.presence_field,
+                sigma=float(diffusion_sigma),
+                mode="nearest",
+            ).astype(np.float32)
+
+    def merge_presence(self, other_field: np.ndarray) -> None:
+        """Mezcla la feromona de otro agente vía max-merge (gossip).
+
+        Semántica info-pesimista: si el peer sabía que una celda estaba
+        más pisada, el receptor adopta ese valor. Tras el merge ambos
+        evaporan independientemente.
+        """
+        if other_field.shape != self.presence_field.shape:
+            return
+        np.maximum(self.presence_field, other_field, out=self.presence_field)
 
     def get_updates_since(self, since_timestep: int) -> list[MapUpdate]:
         """Devuelve actualizaciones generadas desde since_timestep."""

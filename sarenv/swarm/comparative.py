@@ -68,6 +68,9 @@ class SwarmComparativeEvaluator:
         discount_factor: float = 0.999,
         anti_revisit_window: int = 4,
         anti_revisit_penalty: float = 0.05,
+        presence_weight: float = 0.05,
+        presence_diffusion_sigma: float = 0.5,
+        pheromone_attenuation: float = 0.1,
     ) -> None:
         self.dataset_dir = dataset_dir
         self.size = size
@@ -79,6 +82,9 @@ class SwarmComparativeEvaluator:
         self.discount_factor = discount_factor
         self.anti_revisit_window = anti_revisit_window
         self.anti_revisit_penalty = anti_revisit_penalty
+        self.presence_weight = presence_weight
+        self.presence_diffusion_sigma = presence_diffusion_sigma
+        self.pheromone_attenuation = pheromone_attenuation
 
         # Configuraciones de enjambre a probar (cada una es un escenario)
         # Si no se pasan, se usa una configuración por defecto
@@ -175,6 +181,8 @@ class SwarmComparativeEvaluator:
         for c in (drone_cfg, dog_cfg):
             c.anti_revisit_window = self.anti_revisit_window
             c.anti_revisit_penalty = self.anti_revisit_penalty
+            c.presence_weight = self.presence_weight
+            c.pheromone_attenuation = self.pheromone_attenuation
 
         config = SwarmConfig(
             num_drones=num_drones,
@@ -184,6 +192,7 @@ class SwarmComparativeEvaluator:
             max_hops=max_hops,
             drone_config=drone_cfg,
             dog_config=dog_cfg,
+            presence_diffusion_sigma=self.presence_diffusion_sigma,
         )
 
         t0 = time.perf_counter()
@@ -239,6 +248,8 @@ class SwarmComparativeEvaluator:
         for c in (drone_cfg, dog_cfg):
             c.anti_revisit_window = self.anti_revisit_window
             c.anti_revisit_penalty = self.anti_revisit_penalty
+            c.presence_weight = self.presence_weight
+            c.pheromone_attenuation = self.pheromone_attenuation
 
         config = SwarmConfig(
             num_drones=num_drones,
@@ -248,6 +259,7 @@ class SwarmComparativeEvaluator:
             max_hops=max_hops,
             drone_config=drone_cfg,
             dog_config=dog_cfg,
+            presence_diffusion_sigma=self.presence_diffusion_sigma,
         )
 
         t0 = time.perf_counter()

@@ -147,16 +147,16 @@ class SwarmSimulator:
         for agent in active_agents:
             agent.execute_move(decisions[agent.id], timestep=self.timestep)
 
-        # 3b. DEPÓSITO DE FEROMONA DE PRESENCIA (Iteración 3, docs/16)
-        # Estigmergia: cada agente activo deja un rastro en el campo
-        # compartido del entorno. Si un agente cae, deja de depositar y
-        # su rastro se evapora solo (sin protocolo, sin coordinador).
+        # 3b. DEPÓSITO DE FEROMONA DE PRESENCIA (estigmergia swarm-local)
+        # Cada agente activo deposita en SU PROPIO mapa local de presence.
+        # El gossip (paso 5) se encarga de propagarlo a otros agentes en
+        # rango vía merge ``np.maximum``.
         deposit = self.config.presence_deposit
         if deposit > 0:
             for agent in active_agents:
                 if agent.active:
                     r, c = agent.position
-                    self.env.deposit_presence(r, c, deposit)
+                    agent.knowledge.deposit_presence(r, c, deposit)
 
         # 4. OBSERVACIÓN -- actualizar conocimiento local con lo que vemos
         for agent in active_agents:
@@ -194,14 +194,16 @@ class SwarmSimulator:
                 self.config.alert_evaporation_rate,
             )
 
-        # 6b. EVAPORACIÓN + DIFUSIÓN del campo de presencia (Iter3)
+        # 6b. EVAPORACIÓN + DIFUSIÓN del campo de presencia LOCAL de cada
+        # agente (estigmergia swarm pura: sin estado global del entorno).
         period = self.config.presence_diffusion_period
         diffuse_now = period > 0 and (self.timestep % period == 0)
-        self.env.decay_presence(
-            evaporation_rate=self.config.presence_evaporation,
-            diffusion_sigma=self.config.presence_diffusion_sigma,
-            diffuse_now=diffuse_now,
-        )
+        for agent in self.agents:
+            agent.knowledge.decay_presence(
+                evaporation_rate=self.config.presence_evaporation,
+                diffusion_sigma=self.config.presence_diffusion_sigma,
+                diffuse_now=diffuse_now,
+            )
 
         self.timestep += 1
         return self._snapshot()

@@ -60,3 +60,9 @@ class CommunicationProtocol:
         # Merge bidireccional
         agent_b.knowledge.merge_updates(updates_a, self.max_hops)
         agent_a.knowledge.merge_updates(updates_b, self.max_hops)
+
+        # Merge bidireccional del campo de presencia LOCAL (max-merge):
+        # estigmergia swarm pura sin estado global. Tras el merge ambos
+        # agentes ven la misma feromona y la evaporarán por separado.
+        agent_a.knowledge.merge_presence(agent_b.knowledge.presence_field)
+        agent_b.knowledge.merge_presence(agent_a.knowledge.presence_field)

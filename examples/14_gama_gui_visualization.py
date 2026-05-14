@@ -175,17 +175,24 @@ def run_with_gama_gui(
         max_hops=args.max_hops,
         budget_per_agent=budget,
         max_steps=args.max_steps,
+        presence_diffusion_sigma=args.presence_diffusion_sigma,
     )
     # Aplicar anti-revisit corto (rompe oscilaciones A-B-A-B observadas en el
     # comportamiento por defecto: novelty satura al floor durante ~30 ticks).
     for cfg in (config.drone_config, config.dog_config):
         cfg.anti_revisit_window = args.anti_revisit_window
         cfg.anti_revisit_penalty = args.anti_revisit_penalty
+        cfg.presence_weight = args.presence_weight
+        cfg.pheromone_attenuation = args.pheromone_attenuation
 
     sim = SwarmSimulator(env, config, seed=args.seed)
     log.info(
         "Anti-revisit: window=%d ticks, penalty=%.4f",
         args.anti_revisit_window, args.anti_revisit_penalty,
+    )
+    log.info(
+        "Presence pheromone: weight=%.4f, diffusion_sigma=%.2f, attenuation=%.3f",
+        args.presence_weight, args.presence_diffusion_sigma, args.pheromone_attenuation,
     )
     log.info(
         "Simulador creado: %d drones + %d dogs, budget=%.0f m, grid=%d×%d",
@@ -419,6 +426,12 @@ def parse_args() -> argparse.Namespace:
                    help="Ticks recientes a penalizar para romper oscilaciones A-B-A-B (0=off).")
     p.add_argument("--anti-revisit-penalty", type=float, default=0.05,
                    help="Magnitud de la penalización lineal anti-revisita corta.")
+    p.add_argument("--presence-weight", type=float, default=0.05,
+                   help="Peso de la feromona repulsiva estigmérgica (default 0.05; baseline=0.01).")
+    p.add_argument("--presence-diffusion-sigma", type=float, default=0.5,
+                   help="Sigma de la difusión gaussiana del campo de presencia (default 0.5; baseline=2.0). Valores bajos preservan picos locales y crean gradiente.")
+    p.add_argument("--pheromone-attenuation", type=float, default=0.1,
+                   help="Atenuación estigmérgica del prior: prob_eff = prob*exp(-α*presence). Default 0.1 (presence=10 → prob/2.7; presence=30 → prob~0). 0=OFF.")
     p.add_argument("--heatmap-gamma", type=float, default=1.0,
                    help="Corrección gamma del heatmap exportado a GAMA. "
                         "<1 realza valores bajos (heatmap más extendido), >1 los apaga. "
