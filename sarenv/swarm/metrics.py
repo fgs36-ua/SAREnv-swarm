@@ -245,7 +245,141 @@ class SwarmMetrics:
         summary["time_to_first_victim"] = ttfv
         summary["info_propagation_latency"] = latency
 
+        # Métricas de aglomeración (Iteración 1, ver docs/16)
+        agg = self.aggregation_report()
+        summary["coverage_gini"] = agg["coverage_gini"]
+        summary["cluster_ratio"] = agg["cluster_ratio"]
+        summary["mean_pair_distance_cells"] = agg["mean_pair_distance_cells"]
+
         return summary
+
+    # ------------------------------------------------------------------
+    # Métricas de aglomeración / dispersión espacial (Iteración 1)
+    #
+    # Referencias:
+    # - Coverage Gini coefficient: Gini, C. (1912), "Variabilità e
+    #   mutabilità". Aplicado en swarm robotics como métrica de equidad
+    #   de la distribución de visitas (Hsieh et al. 2008).
+    # - Tiempo en clúster: Reynolds (1987) "Flocks, herds, and schools"
+    #   define la regla de "separation"; el tiempo medio que un agente
+    #   pasa con vecinos cercanos cuantifica su violación.
+    # - Distancia media entre pares: Cortés et al. (2004) "Coverage
+    #   control for mobile sensing networks", como proxy de cobertura
+    #   uniforme tipo Voronoi.
+    # ------------------------------------------------------------------
+
+    def coverage_gini(self) -> float:
+        """Gini sobre el número de visitas por celda visitada.
+
+        - Gini = 0  → todas las celdas visitadas reciben el mismo número
+          de visitas (cobertura perfectamente uniforme).
+        - Gini → 1  → unas pocas celdas concentran casi todas las visitas
+          (aglomeración fuerte).
+
+        Returns
+        -------
+        float
+            Gini en [0, 1]. 0.0 si no hay datos.
+        """
+        env = self.sim.env
+        visits = np.zeros((env.grid.rows, env.grid.cols), dtype=np.int32)
+        for agent in self.sim.agents:
+            for r, c in agent.path:
+                visits[r, c] += 1
+
+        flat = visits[visits > 0]
+        if flat.size == 0:
+            return 0.0
+        sorted_v = np.sort(flat).astype(np.float64)
+        n = sorted_v.size
+        total = sorted_v.sum()
+        if total <= 0:
+            return 0.0
+        gini = (2.0 * np.sum(np.arange(1, n + 1) * sorted_v)) / (n * total)
+        gini -= (n + 1.0) / n
+        return float(gini)
+
+    def time_in_cluster(
+        self,
+        radius_cells: int = 5,
+        min_neighbors: int = 2,
+    ) -> dict:
+        """Cuantifica la aglomeración tick-a-tick.
+
+        Para cada tick, cuenta cuántos agentes tienen al menos
+        ``min_neighbors`` otros agentes dentro de ``radius_cells`` celdas
+        (distancia Chebyshev). Devuelve la fracción de pares
+        (agente, tick) en esa situación, además de la distancia media
+        por pares promediada en el tiempo.
+
+        Returns
+        -------
+        dict
+            ``cluster_ratio`` ∈ [0, 1], ``mean_pair_distance_cells``,
+            ``ticks_evaluated``, ``radius_cells``, ``min_neighbors``.
+        """
+        agents = self.sim.agents
+        empty = {
+            "cluster_ratio": 0.0,
+            "mean_pair_distance_cells": 0.0,
+            "ticks_evaluated": 0,
+            "radius_cells": radius_cells,
+            "min_neighbors": min_neighbors,
+        }
+        if len(agents) < 2:
+            return empty
+        min_len = min(len(a.path) for a in agents)
+        if min_len < 1:
+            return empty
+
+        # Apilar paths en (N, T, 2). Truncamos al min común para evitar
+        # ragged arrays cuando algún agente terminó antes (return-to-base).
+        positions = np.array(
+            [[a.path[t] for t in range(min_len)] for a in agents],
+            dtype=np.int32,
+        )
+
+        n = len(agents)
+        cluster_count = 0
+        total_evaluations = 0
+        pair_dist_sum = 0.0
+        pair_dist_count = 0
+        iu = np.triu_indices(n, k=1)
+
+        for t in range(min_len):
+            pos_t = positions[:, t, :]  # (N, 2)
+            diff = np.abs(pos_t[:, None, :] - pos_t[None, :, :])
+            dist = diff.max(axis=2)  # Chebyshev
+            neighbors_within = (dist <= radius_cells).sum(axis=1) - 1
+            cluster_count += int((neighbors_within >= min_neighbors).sum())
+            total_evaluations += n
+            if iu[0].size > 0:
+                pair_dist_sum += float(dist[iu].sum())
+                pair_dist_count += iu[0].size
+
+        return {
+            "cluster_ratio": (
+                cluster_count / total_evaluations if total_evaluations else 0.0
+            ),
+            "mean_pair_distance_cells": (
+                pair_dist_sum / pair_dist_count if pair_dist_count else 0.0
+            ),
+            "ticks_evaluated": min_len,
+            "radius_cells": radius_cells,
+            "min_neighbors": min_neighbors,
+        }
+
+    def aggregation_report(
+        self,
+        radius_cells: int = 5,
+        min_neighbors: int = 2,
+    ) -> dict:
+        """Combina ``coverage_gini`` y ``time_in_cluster``."""
+        gini = self.coverage_gini()
+        cluster = self.time_in_cluster(
+            radius_cells=radius_cells, min_neighbors=min_neighbors,
+        )
+        return {"coverage_gini": gini, **cluster}
 
     # -- Helpers privados --
 

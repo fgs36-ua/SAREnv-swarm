@@ -232,20 +232,46 @@ class BaseSwarmAgent:
                 if (timestep - ts) < self.knowledge.gossip_expiry_ticks:
                     novelty *= 0.6
 
-            # Repulsión: penalizar celdas cerca de otros agentes
+            # Repulsión: penalizar celdas cerca de otros agentes.
+            # Curva 1/d^p con p configurable (Reynolds 1987 usa p=2 en
+            # la regla de separation: la fuerza repulsiva debe crecer
+            # más rápido que el inverso lineal para vencer al gradiente
+            # de atracción cerca de los focos de probabilidad).
             repulsion = 0.0
+            p = self.config.repulsion_exponent
             for npos in neighbor_positions:
                 d = self._grid_distance(cell, npos)
                 if d > 0:
-                    repulsion += 1.0 / d
+                    repulsion += 1.0 / (d ** p)
 
             score = prob * novelty - self.config.repulsion_weight * repulsion
+            # Iter3 (docs/16): penalización estigmérgica por feromona de
+            # presencia depositada en el entorno por TODOS los agentes.
+            # Es repulsión regional (no sólo vecinos en comm_range) y se
+            # difumina sola si los depositantes desaparecen.
+            pw = self.config.presence_weight
+            if pw > 0:
+                score -= pw * float(self.env.presence_field[cell[0], cell[1]])
             # Bonus aditivo por exploración: premia celdas no visitadas
             # con probabilidad > 0 para equilibrar explotación vs exploración.
             # Solo aplica a celdas con prob > 0 para no gastar budget en
             # zonas sin interés.
             if cell not in self.cells_ever_explored and prob > 0:
                 score += self.config.exploration_weight
+            # Anti-revisit corto (rompe oscilaciones A-B-A-B observadas en
+            # baseline). El decaimiento exponencial de novelty con tau=200
+            # satura al floor 0.05 durante los ~30 primeros ticks tras
+            # visitar una celda, dejando todas las vecinas con la misma
+            # novelty y permitiendo que el ruido fuerce flip-flop entre 2
+            # celdas. Esta penalización LINEAL adicional, fuerte para dt=1
+            # y nula para dt>=window, garantiza que el agente no desande
+            # lo último a no ser que TODAS las vecinas estén también dentro
+            # de la ventana (en cuyo caso elige la menos penalizada).
+            arw = self.config.anti_revisit_window
+            if arw > 0 and cell in self._visit_timestamps:
+                dt = timestep - self._visit_timestamps[cell]
+                if dt < arw:
+                    score -= self.config.anti_revisit_penalty * (arw - dt) / arw
             # Jitter aleatorio para romper simetría entre agentes con
             # scoring casi idéntico (evita herding determinista)
             score += self._rng.random() * 1e-8
@@ -315,11 +341,31 @@ class BaseSwarmAgent:
         return np.sqrt(dr * dr + dc * dc)
 
     def _step_toward(self, target: tuple[int, int]) -> tuple[int, int]:
-        """Celda adyacente que más acerca al objetivo."""
+        """Celda adyacente que más acerca al objetivo.
+
+        Tiebreaker anti-revisit: cuando hay vecinas equidistantes al target,
+        el comportamiento por defecto de `min` produce oscilación A-B-A-B
+        en frontier/return mode. Si `anti_revisit_window > 0`, la celda
+        visitada hace MÁS tiempo gana (o la nunca-visitada).
+        """
         neighbors = self._get_reachable_neighbors()
         if not neighbors:
             return self.position
-        return min(neighbors, key=lambda c: self._grid_distance(c, target))
+        arw = self.config.anti_revisit_window
+        if arw <= 0:
+            return min(neighbors, key=lambda c: self._grid_distance(c, target))
+
+        # Score = (distancia_al_target, antiguedad_de_visita_invertida)
+        # Menor distancia primero; a igual distancia, celda visitada hace
+        # más tiempo (o nunca → -inf → gana).
+        def _key(c: tuple[int, int]) -> tuple[float, float]:
+            d = self._grid_distance(c, target)
+            last = self._visit_timestamps.get(c)
+            # Sin visita: muy preferida (recencia = -infinito)
+            recency = -float("inf") if last is None else float(last)
+            return (d, recency)
+
+        return min(neighbors, key=_key)
 
     def _random_walk(self, reachable: list[tuple[int, int]]) -> tuple[int, int]:
         """Elige un vecino alcanzable al azar."""

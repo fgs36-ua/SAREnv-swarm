@@ -304,21 +304,83 @@ class GamaNetworkServer:
         includes_dir: Path,
         max_dim: int = 100,
     ) -> None:
-        """Escribe feromona en disco y avisa a GAMA."""
-        maps = [a.knowledge.exploration_map for a in agents]
-        fused = np.maximum.reduce(maps) if maps else maps[0]
-        fused = self._downsample_max(fused, max_dim=max_dim)
+        """[DEPRECADO] Sólo emite la señal ``PHEROMONE``.
 
-        csv_path = includes_dir / "exploration_field.csv"
-        try:
-            self._write_csv(fused, csv_path)
-        except OSError as e:
-            # GAMA puede tener el CSV abierto/mapeado para lectura;
-            # un fallo transitorio no debe matar la simulación.
-            logger.warning("No se pudo escribir %s: %s. Saltando feromona.", csv_path, e)
-            return
-
+        Antes escribía ``exploration_field.csv`` que GAMA nunca leía
+        (el ``.gaml`` mantiene su propia ``exploration_matrix`` que se
+        rellena desde los mensajes ``AGENT``). Para evitar I/O muerto
+        ahora sólo manda la señal de refresco. Mantener firma por
+        compatibilidad.
+        """
+        del agents, includes_dir, max_dim  # silenciar lint
         self._send_line("PHEROMONE")
+
+    def send_gossip_field(
+        self,
+        agents: list[BaseSwarmAgent],
+        timestep: int,
+        max_dim: int = 80,
+    ) -> None:
+        """Envía a GAMA un campo 2D con la propagación gossip actual.
+
+        Para cada celda del grid se computa cuántos agentes la conocen
+        vía ``cells_gossip_explored`` (no expirado). Se downsamplea a
+        ``max_dim`` × ``max_dim`` por max-pooling y se envía inline en
+        un único mensaje TCP::
+
+            GOSSIP_DATA|cols|rows|v00,v01,...;v10,v11,...;...
+
+        Donde cada fila va separada por ``;`` y cada celda por ``,``.
+        Los valores son enteros [0, num_agents] (cuántos agentes
+        conocen esa celda).
+        """
+        if not agents:
+            return
+        # Cogemos la forma del primer agente (todos comparten grid).
+        shape = agents[0].knowledge.exploration_map.shape
+        field = np.zeros(shape, dtype=np.int16)
+        for a in agents:
+            expiry = a.knowledge.gossip_expiry_ticks
+            for (r, c), ts in a.knowledge.cells_gossip_explored.items():
+                if (timestep - ts) < expiry:
+                    field[r, c] += 1
+        if field.max() == 0:
+            return
+        ds = self._downsample_max(field.astype(np.float32), max_dim=max_dim)
+        rows, cols = ds.shape
+        # Empaquetar como string CSV-en-una-línea
+        row_strs = [
+            ",".join(f"{int(v)}" for v in row) for row in ds
+        ]
+        payload = ";".join(row_strs)
+        self._send_line(f"GOSSIP_DATA|{cols}|{rows}|{payload}")
+
+    def send_comm_links(self, agents: list[BaseSwarmAgent]) -> None:
+        """Envía a GAMA todos los pares de agentes activos en rango de
+        comunicación mutuo, para que se dibujen como líneas.
+
+        Formato::
+
+            LINKS|n|x1,y1,x2,y2;x3,y3,x4,y4;...
+
+        Coordenadas en píxeles GAMA (mismo sistema que ``AGENT``).
+        Si no hay enlaces se envía ``LINKS|0|``.
+        """
+        active = [a for a in agents if getattr(a, "active", False)]
+        segs: list[str] = []
+        for i, a in enumerate(active):
+            for b in active[i + 1:]:
+                dist = a._grid_distance(a.position, b.position)
+                cr = min(a.config.comm_range, b.config.comm_range)
+                if dist <= cr:
+                    ar, ac = a.position
+                    br, bc = b.position
+                    segs.append(
+                        f"{ac + 0.5:.1f},{ar + 0.5:.1f},"
+                        f"{bc + 0.5:.1f},{br + 0.5:.1f}"
+                    )
+        payload = ";".join(segs)
+        self._send_line(f"LINKS|{len(segs)}|{payload}")
 
     def send_end(self) -> None:
         """Señal de fin de simulación."""

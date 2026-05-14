@@ -147,6 +147,17 @@ class SwarmSimulator:
         for agent in active_agents:
             agent.execute_move(decisions[agent.id], timestep=self.timestep)
 
+        # 3b. DEPÓSITO DE FEROMONA DE PRESENCIA (Iteración 3, docs/16)
+        # Estigmergia: cada agente activo deja un rastro en el campo
+        # compartido del entorno. Si un agente cae, deja de depositar y
+        # su rastro se evapora solo (sin protocolo, sin coordinador).
+        deposit = self.config.presence_deposit
+        if deposit > 0:
+            for agent in active_agents:
+                if agent.active:
+                    r, c = agent.position
+                    self.env.deposit_presence(r, c, deposit)
+
         # 4. OBSERVACIÓN -- actualizar conocimiento local con lo que vemos
         for agent in active_agents:
             if not agent.active:
@@ -183,6 +194,15 @@ class SwarmSimulator:
                 self.config.alert_evaporation_rate,
             )
 
+        # 6b. EVAPORACIÓN + DIFUSIÓN del campo de presencia (Iter3)
+        period = self.config.presence_diffusion_period
+        diffuse_now = period > 0 and (self.timestep % period == 0)
+        self.env.decay_presence(
+            evaporation_rate=self.config.presence_evaporation,
+            diffusion_sigma=self.config.presence_diffusion_sigma,
+            diffuse_now=diffuse_now,
+        )
+
         self.timestep += 1
         return self._snapshot()
 
@@ -197,6 +217,14 @@ class SwarmSimulator:
                 if dist <= comm_range:
                     pairs.append((a, b))
         return pairs
+
+    def get_active_comm_pairs(self) -> list[tuple[BaseSwarmAgent, BaseSwarmAgent]]:
+        """Pares de agentes activos en rango de comunicación mutuo (acceso público).
+
+        Devuelve la misma lista que se usa internamente en cada step para el
+        gossip exchange. Útil para logging externo y visualización.
+        """
+        return self._get_pairs_in_comm_range()
 
     def kill_agent(self, agent_id: str) -> bool:
         """Desactiva un agente (simula fallo catastrófico en campo).

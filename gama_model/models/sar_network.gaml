@@ -33,6 +33,9 @@ global skills: [network] {
     int grid_cols;
     int grid_rows;
 
+    // --- Enlaces de comunicación entre agentes (refrescados cada tick) ---
+    list<list<point>> comm_links <- [];
+
     // --- Estado de la simulación ---
     int current_step <- 0;
     int victims_found <- 0;
@@ -110,14 +113,18 @@ global skills: [network] {
             last_status <- "Inicializando...";
         }
         else if (cmd = "DRONE" and length(parts) >= 5) {
+            int didx <- int(parts[1]);
             create drone {
+                agent_idx <- didx;
                 location <- {float(parts[2]), float(parts[3])};
                 budget_left <- float(parts[4]);
                 is_active <- true;
             }
         }
         else if (cmd = "DOG" and length(parts) >= 5) {
+            int didx <- int(parts[1]);
             create robot_dog {
+                agent_idx <- didx;
                 location <- {float(parts[2]), float(parts[3])};
                 budget_left <- float(parts[4]);
                 is_active <- true;
@@ -145,17 +152,39 @@ global skills: [network] {
             float abudget <- float(parts[5]);
             bool aactive <- int(parts[6]) > 0;
 
-            if (atype = "drone" and aidx < length(drone)) {
-                ask drone[aidx] {
-                    do move_to(ax, ay, abudget, aactive);
+            if (atype = "drone") {
+                drone target_drone <- first(drone where (each.agent_idx = aidx));
+                if (target_drone != nil) {
+                    ask target_drone {
+                        do move_to(ax, ay, abudget, aactive);
+                    }
+                } else {
+                    // Drone no existe aún (mensaje de INIT perdido): crearlo on-the-fly
+                    write "[WARN] Drone " + aidx + " no encontrado, creando on-the-fly en (" + ax + "," + ay + ")";
+                    create drone {
+                        agent_idx <- aidx;
+                        location <- {ax, ay};
+                        budget_left <- abudget;
+                        is_active <- aactive;
+                    }
                 }
-                // Marcar celda explorada
                 int cx <- min(grid_cols - 1, max(0, int(ax)));
                 int cy <- min(grid_rows - 1, max(0, int(ay)));
                 exploration_matrix[{cx, cy}] <- 1.0;
-            } else if (atype = "robot_dog" and aidx < length(robot_dog)) {
-                ask robot_dog[aidx] {
-                    do move_to(ax, ay, abudget, aactive);
+            } else if (atype = "robot_dog") {
+                robot_dog target_dog <- first(robot_dog where (each.agent_idx = aidx));
+                if (target_dog != nil) {
+                    ask target_dog {
+                        do move_to(ax, ay, abudget, aactive);
+                    }
+                } else {
+                    write "[WARN] Dog " + aidx + " no encontrado, creando on-the-fly en (" + ax + "," + ay + ")";
+                    create robot_dog {
+                        agent_idx <- aidx;
+                        location <- {ax, ay};
+                        budget_left <- abudget;
+                        is_active <- aactive;
+                    }
                 }
                 int cx <- min(grid_cols - 1, max(0, int(ax)));
                 int cy <- min(grid_rows - 1, max(0, int(ay)));
@@ -182,6 +211,27 @@ global skills: [network] {
             // Actualizar field desde la matriz local
             exploration_field <- field(exploration_matrix);
         }
+        else if (cmd = "GOSSIP_DATA" and length(parts) >= 4) {
+            // [DEPRECADO] El campo gossip ya no se renderiza como mesh
+            // (ocultaba a los agentes). Se ignora silenciosamente para
+            // mantener compatibilidad con servers viejos.
+        }
+        else if (cmd = "LINKS" and length(parts) >= 2) {
+            // Formato: LINKS|n|x1,y1,x2,y2;x3,y3,x4,y4;...
+            comm_links <- [];
+            if (length(parts) >= 3 and length(parts[2]) > 0) {
+                list<string> segs <- parts[2] split_with ";";
+                loop s over: segs {
+                    list<string> nums <- s split_with ",";
+                    if (length(nums) = 4) {
+                        comm_links <- comm_links + [[
+                            {float(nums[0]), float(nums[1])},
+                            {float(nums[2]), float(nums[3])}
+                        ]];
+                    }
+                }
+            }
+        }
         else if (cmd = "END") {
             simulation_ended <- true;
             last_status <- "Simulacion finalizada.";
@@ -195,6 +245,7 @@ global skills: [network] {
 // ─────────────────────────────────────────────────────────────────
 
 species drone {
+    int agent_idx <- -1;
     float budget_left;
     bool is_active <- true;
     list<point> trail <- [];
@@ -216,19 +267,18 @@ species drone {
             draw triangle(10) color: #red;
             draw circle(5) color: rgb(255, 0, 0, 40);
         } else {
-            draw triangle(5) color: rgb(150, 150, 150, 100);
+            // Drone inactivo (presupuesto agotado): X gris visible
+            draw triangle(8) color: rgb(80, 80, 80, 220) border: rgb(180, 180, 180, 200);
         }
 
         if (length(trail) > 1) {
-            loop i from: 0 to: length(trail) - 2 {
-                int alpha <- int(40 + (160 * i / length(trail)));
-                draw line([trail[i], trail[i+1]]) color: rgb(255, 100, 100, alpha) width: 1;
-            }
+            draw polyline(trail) color: rgb(255, 100, 100, 180) width: 0.4;
         }
     }
 }
 
 species robot_dog {
+    int agent_idx <- -1;
     float budget_left;
     bool is_active <- true;
     list<point> trail <- [];
@@ -247,16 +297,14 @@ species robot_dog {
 
     aspect default {
         if (is_active) {
-            draw sphere(4) color: #orange;
+            draw square(8) color: #cyan border: #white;
         } else {
-            draw sphere(2) color: rgb(200, 150, 0, 100);
+            // Dog inactivo: cuadrado gris oscuro con borde visible
+            draw square(7) color: rgb(40, 80, 90, 220) border: rgb(0, 180, 200, 180);
         }
 
         if (length(trail) > 1) {
-            loop i from: 0 to: length(trail) - 2 {
-                int alpha <- int(40 + (160 * i / length(trail)));
-                draw line([trail[i], trail[i+1]]) color: rgb(255, 180, 0, alpha) width: 1;
-            }
+            draw polyline(trail) color: rgb(0, 200, 230, 180) width: 0.4;
         }
     }
 }
@@ -305,6 +353,13 @@ experiment sar_gui_network type: gui {
             species victim;
             species drone;
             species robot_dog;
+
+            // Enlaces de comunicación activos (líneas cyan entre agentes en rango)
+            graphics "comm_links" {
+                loop link over: comm_links {
+                    draw line(link) color: rgb(80, 220, 255, 180) width: 0.6;
+                }
+            }
         }
 
         // Panel de métricas

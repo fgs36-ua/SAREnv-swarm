@@ -176,8 +176,17 @@ def run_with_gama_gui(
         budget_per_agent=budget,
         max_steps=args.max_steps,
     )
+    # Aplicar anti-revisit corto (rompe oscilaciones A-B-A-B observadas en el
+    # comportamiento por defecto: novelty satura al floor durante ~30 ticks).
+    for cfg in (config.drone_config, config.dog_config):
+        cfg.anti_revisit_window = args.anti_revisit_window
+        cfg.anti_revisit_penalty = args.anti_revisit_penalty
 
     sim = SwarmSimulator(env, config, seed=args.seed)
+    log.info(
+        "Anti-revisit: window=%d ticks, penalty=%.4f",
+        args.anti_revisit_window, args.anti_revisit_penalty,
+    )
     log.info(
         "Simulador creado: %d drones + %d dogs, budget=%.0f m, grid=%d×%d",
         config.num_drones, config.num_dogs, budget,
@@ -229,6 +238,32 @@ def run_with_gama_gui(
         found_so_far: set[tuple[int, int]] = set()
         tick_delay = args.tick_delay_ms / 1000.0 if args.tick_delay_ms > 0 else 0
         pheromone_interval = args.pheromone_interval
+        gossip_interval = args.gossip_interval
+        links_interval = args.links_interval
+
+        # Trail logging opcional: CSV con tick,agent_id,row,col,active,budget
+        trail_log_f = None
+        trail_log_writer = None
+        if args.trail_log:
+            import csv as _csv
+            trail_log_path = Path(args.trail_log)
+            trail_log_path.parent.mkdir(parents=True, exist_ok=True)
+            trail_log_f = open(trail_log_path, "w", newline="", encoding="utf-8")
+            trail_log_writer = _csv.writer(trail_log_f)
+            trail_log_writer.writerow(["tick", "agent_id", "row", "col", "active", "budget"])
+            log.info("Trail logging activado: %s", trail_log_path)
+
+        # Gossip event logging: CSV con tick,agent_a,agent_b
+        gossip_log_f = None
+        gossip_log_writer = None
+        if args.gossip_log:
+            import csv as _csv
+            gossip_log_path = Path(args.gossip_log)
+            gossip_log_path.parent.mkdir(parents=True, exist_ok=True)
+            gossip_log_f = open(gossip_log_path, "w", newline="", encoding="utf-8")
+            gossip_log_writer = _csv.writer(gossip_log_f)
+            gossip_log_writer.writerow(["tick", "agent_a", "agent_b"])
+            log.info("Gossip event logging activado: %s", gossip_log_path)
 
         log.info("Iniciando bucle de simulación (max %d steps)...", args.max_steps)
         t0 = time.time()
@@ -256,9 +291,32 @@ def run_with_gama_gui(
                 # Actualizar feromonas si toca
                 if pheromone_interval > 0 and (step_num + 1) % pheromone_interval == 0:
                     server.send_pheromone(sim.agents, GAMA_INCLUDES_DIR)
+
+                # Enviar gossip field si toca (deprecado, off por defecto)
+                if gossip_interval > 0 and (step_num + 1) % gossip_interval == 0:
+                    server.send_gossip_field(sim.agents, timestep=sim.timestep)
+
+                # Enviar enlaces de comunicación activos (líneas entre agentes en rango)
+                if links_interval > 0 and (step_num + 1) % links_interval == 0:
+                    server.send_comm_links(sim.agents)
             except GamaDisconnected:
                 log.warning("GAMA desconectado en tick %d. Deteniendo simulación.", step_num + 1)
                 break
+
+            # Trail logging
+            if trail_log_writer is not None:
+                t = sim.timestep
+                for agent in sim.agents:
+                    pos = snapshot["positions"].get(agent.id, agent.position)
+                    bud = snapshot["budgets"].get(agent.id, 0.0)
+                    act = snapshot["active"].get(agent.id, False)
+                    trail_log_writer.writerow([t, agent.id, pos[0], pos[1], int(act), f"{bud:.1f}"])
+
+            # Gossip event logging
+            if gossip_log_writer is not None:
+                t = sim.timestep
+                for a, b in sim.get_active_comm_pairs():
+                    gossip_log_writer.writerow([t, a.id, b.id])
 
             # Log periódico
             if (step_num + 1) % 100 == 0:
@@ -292,6 +350,14 @@ def run_with_gama_gui(
             server.send_end()
         except GamaDisconnected:
             pass
+
+        if trail_log_f is not None:
+            trail_log_f.close()
+            log.info("Trail log cerrado.")
+
+        if gossip_log_f is not None:
+            gossip_log_f.close()
+            log.info("Gossip log cerrado.")
 
         return {
             "ticks": sim.timestep,
@@ -340,7 +406,19 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--tick-delay-ms", type=int, default=50,
                    help="Delay en ms entre ticks (default: 50)")
     p.add_argument("--pheromone-interval", type=int, default=25,
-                   help="Cada cuántos ticks actualizar feromonas (default: 25)")
+                   help="Cada cuántos ticks refrescar exploration_field (default: 25)")
+    p.add_argument("--gossip-interval", type=int, default=0,
+                   help="[DEPRECADO] Antes mandaba el gossip mesh; ahora se ignora (deja 0).")
+    p.add_argument("--links-interval", type=int, default=1,
+                   help="Cada cuántos ticks enviar enlaces de comunicación (default: 1, 0=desactivado)")
+    p.add_argument("--trail-log", type=str, default=None,
+                   help="Si se indica, escribe CSV de trayectorias en esa ruta para análisis offline.")
+    p.add_argument("--gossip-log", type=str, default=None,
+                   help="Si se indica, escribe CSV de eventos gossip (qué pares se comunicaron cada tick) en esa ruta.")
+    p.add_argument("--anti-revisit-window", type=int, default=4,
+                   help="Ticks recientes a penalizar para romper oscilaciones A-B-A-B (0=off).")
+    p.add_argument("--anti-revisit-penalty", type=float, default=0.05,
+                   help="Magnitud de la penalización lineal anti-revisita corta.")
     p.add_argument("--heatmap-gamma", type=float, default=1.0,
                    help="Corrección gamma del heatmap exportado a GAMA. "
                         "<1 realza valores bajos (heatmap más extendido), >1 los apaga. "

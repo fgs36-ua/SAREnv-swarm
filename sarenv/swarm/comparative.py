@@ -66,6 +66,8 @@ class SwarmComparativeEvaluator:
         fov_deg: float = 45.0,
         altitude: float = 80.0,
         discount_factor: float = 0.999,
+        anti_revisit_window: int = 4,
+        anti_revisit_penalty: float = 0.05,
     ) -> None:
         self.dataset_dir = dataset_dir
         self.size = size
@@ -75,6 +77,8 @@ class SwarmComparativeEvaluator:
         self.fov_deg = fov_deg
         self.altitude = altitude
         self.discount_factor = discount_factor
+        self.anti_revisit_window = anti_revisit_window
+        self.anti_revisit_penalty = anti_revisit_penalty
 
         # Configuraciones de enjambre a probar (cada una es un escenario)
         # Si no se pasan, se usa una configuración por defecto
@@ -166,14 +170,20 @@ class SwarmComparativeEvaluator:
         max_hops = cfg_dict.get("max_hops", 3)
         max_steps = cfg_dict.get("max_steps", 15_000)
 
+        drone_cfg = DroneConfig(altitude=self.altitude, fov_deg=self.fov_deg)
+        dog_cfg = RobotDogConfig(sensor_range=20.0)
+        for c in (drone_cfg, dog_cfg):
+            c.anti_revisit_window = self.anti_revisit_window
+            c.anti_revisit_penalty = self.anti_revisit_penalty
+
         config = SwarmConfig(
             num_drones=num_drones,
             num_dogs=num_dogs,
             budget_per_agent=self.budget_per_agent,
             max_steps=max_steps,
             max_hops=max_hops,
-            drone_config=DroneConfig(altitude=self.altitude, fov_deg=self.fov_deg),
-            dog_config=RobotDogConfig(sensor_range=20.0),
+            drone_config=drone_cfg,
+            dog_config=dog_cfg,
         )
 
         t0 = time.perf_counter()
@@ -224,14 +234,20 @@ class SwarmComparativeEvaluator:
         max_hops = cfg_dict.get("max_hops", 1)
         max_steps = cfg_dict.get("max_steps", 15_000)
 
+        drone_cfg = DroneConfig(altitude=self.altitude, fov_deg=self.fov_deg)
+        dog_cfg = RobotDogConfig(sensor_range=20.0)
+        for c in (drone_cfg, dog_cfg):
+            c.anti_revisit_window = self.anti_revisit_window
+            c.anti_revisit_penalty = self.anti_revisit_penalty
+
         config = SwarmConfig(
             num_drones=num_drones,
             num_dogs=num_dogs,
             budget_per_agent=self.budget_per_agent,
             max_steps=max_steps,
             max_hops=max_hops,
-            drone_config=DroneConfig(altitude=self.altitude, fov_deg=self.fov_deg),
-            dog_config=RobotDogConfig(sensor_range=20.0),
+            drone_config=drone_cfg,
+            dog_config=dog_cfg,
         )
 
         t0 = time.perf_counter()
