@@ -71,7 +71,7 @@ class SwarmComparativeEvaluator:
         presence_weight: float = 0.05,
         presence_diffusion_sigma: float = 0.5,
         pheromone_attenuation: float = 0.1,
-        dispersal_weight: float = 0.3,
+        dispersal_weight: float = 0.1,
     ) -> None:
         self.dataset_dir = dataset_dir
         self.size = size
