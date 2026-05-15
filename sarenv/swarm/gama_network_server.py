@@ -370,7 +370,7 @@ class GamaNetworkServer:
         segs: list[str] = []
         for i, a in enumerate(active):
             for b in active[i + 1:]:
-                dist = a._grid_distance(a.position, b.position)
+                dist = a.grid_distance(a.position, b.position)
                 cr = min(a.config.comm_range, b.config.comm_range)
                 if dist <= cr:
                     ar, ac = a.position

@@ -292,7 +292,7 @@ class TestAgentDetection:
     def test_drone_sees_fewer_cells_in_woodland(self, woodland_env):
         """Dron en bosque filtra celdas de baja detección."""
         drone = self._make_agent(DroneAgent, woodland_env, position=(25, 10))
-        visible = drone._get_visible_cells()
+        visible = drone.get_visible_cells()
         # Comparar con lo que vería sin filtro
         all_cells = woodland_env.get_visible_cells(25, 10, drone._detection_radius)
         # Con filtro debería tener igual o menos celdas
@@ -302,7 +302,7 @@ class TestAgentDetection:
         """Robot dog no detecta nada si está rodeado de agua."""
         # Posicionar en zona de agua (row 5)
         dog = self._make_agent(RobotDogAgent, water_env, position=(5, 25))
-        visible = dog._get_visible_cells()
+        visible = dog.get_visible_cells()
         # Las celdas en agua tienen detección=0, se filtran
         det_mod = water_env.get_detection_modifier("robot_dog")
         water_in_visible = [c for c in visible if det_mod[c[0], c[1]] < 0.05]

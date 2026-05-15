@@ -2,10 +2,8 @@
 """
 Adaptador que evalúa los resultados de la simulación de enjambre usando
 el PathEvaluator de sarenv.analytics.metrics, más métricas específicas
-del enjambre (cobertura, solapamiento, contribución por agente).
-
-Fase 4: métricas extendidas — tiempo hasta primera víctima, cobertura
-efectiva vs redundante, latencia de propagación de información.
+del enjambre (cobertura, solapamiento, contribución por agente, tiempo
+hasta primera víctima, latencia de propagación y aglomeración).
 """
 from __future__ import annotations
 
@@ -122,7 +120,7 @@ class SwarmMetrics:
             },
         }
 
-    # -- Métricas extendidas Fase 4 --
+    # -- Métricas extendidas (tiempo, latencia, eficiencia) --
 
     def time_to_first_victim(self) -> int | None:
         """Tick en que algún agente detectó la primera víctima.
@@ -231,7 +229,7 @@ class SwarmMetrics:
     def full_report(self) -> dict:
         """Informe completo combinando todas las métricas del enjambre.
 
-        Combina coverage_summary con las métricas extendidas de Fase 4
+        Combina coverage_summary con las métricas extendidas
         en un solo diccionario para facilitar la comparativa.
         """
         summary = self.coverage_summary()
@@ -245,7 +243,7 @@ class SwarmMetrics:
         summary["time_to_first_victim"] = ttfv
         summary["info_propagation_latency"] = latency
 
-        # Métricas de aglomeración (Iteración 1, ver docs/16)
+        # Métricas de aglomeración (ver docs/16)
         agg = self.aggregation_report()
         summary["coverage_gini"] = agg["coverage_gini"]
         summary["cluster_ratio"] = agg["cluster_ratio"]
@@ -254,7 +252,7 @@ class SwarmMetrics:
         return summary
 
     # ------------------------------------------------------------------
-    # Métricas de aglomeración / dispersión espacial (Iteración 1)
+    # Métricas de aglomeración / dispersión espacial
     #
     # Referencias:
     # - Coverage Gini coefficient: Gini, C. (1912), "Variabilità e

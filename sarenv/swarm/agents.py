@@ -2,13 +2,13 @@
 """
 Jerarquía de agentes del enjambre.
 
-Fase 1: BaseSwarmAgent con heurística greedy adaptada al paradigma de
-feromonas.  La regla de decisión es sencilla a propósito, porque el
+``BaseSwarmAgent`` implementa una heurística greedy adaptada al paradigma de
+feromonas. La regla de decisión es sencilla a propósito, porque el
 comportamiento coordinado emerge de la dinámica de feromonas y gossip.
 
     score = probability * (1 - exploration_pheromone) - repulsion
 
-Fase 2 añadirá RobotDogAgent con detección/movimiento dependiente del terreno.
+``RobotDogAgent`` añade detección y movimiento dependientes del terreno.
 """
 from __future__ import annotations
 
@@ -106,11 +106,22 @@ class BaseSwarmAgent:
         """Radio de detección en metros (sobreescrito por subclases)."""
         return getattr(self.config, "detection_radius", 80.0)
 
-    def _get_visible_cells(self) -> set[tuple[int, int]]:
+    def get_visible_cells(self) -> set[tuple[int, int]]:
         """Cells visible from the current position."""
         return self.env.get_visible_cells(
             self.position[0], self.position[1], self._detection_radius
         )
+
+    def record_step_observation(self, visible: set[tuple[int, int]]) -> None:
+        """Actualiza el bookkeeping del agente con las celdas visibles del tick.
+
+        Cuenta celdas nuevas para el detector de estancamiento y las acumula
+        en ``cells_ever_explored`` (resistente a evaporación, usado por métricas).
+        Llamado por el simulador después de la fase de observación.
+        """
+        new_cells = len(visible - self.cells_ever_explored)
+        self._recent_new_cells.append(new_cells)
+        self.cells_ever_explored.update(visible)
 
     def _get_reachable_neighbors(self) -> list[tuple[int, int]]:
         """Grid cells the agent can move to in one tick."""
@@ -126,7 +137,7 @@ class BaseSwarmAgent:
 
     def perceive(self, nearby_agents: list[BaseSwarmAgent]) -> Perception:
         """Build a local perception snapshot."""
-        visible = self._get_visible_cells()
+        visible = self.get_visible_cells()
         return Perception(
             visible_cells=visible,
             local_probability={
@@ -156,7 +167,7 @@ class BaseSwarmAgent:
             perception = self.perceive([])
 
         # Prioridad 1 -- conservar budget para volver a base
-        dist_to_base = self._grid_distance(self.position, self.base_position)
+        dist_to_base = self.grid_distance(self.position, self.base_position)
         # Estimación del coste real de vuelta: distancia × transitabilidad
         # media experimentada.  Para drones (trav ≈ 1.0) es casi igual que
         # antes; para perros en terreno difícil (trav > 1) reserva mucho más.
@@ -171,7 +182,7 @@ class BaseSwarmAgent:
         if self._frontier_ttl > 0 and self._frontier_target is not None:
             self._frontier_ttl -= 1
             # Cancelar si hemos llegado (o estamos a 1 celda)
-            if self._grid_distance(self.position, self._frontier_target) < self.env.grid.dx * 1.5:
+            if self.grid_distance(self.position, self._frontier_target) < self.env.grid.dx * 1.5:
                 self._frontier_target = None
                 self._frontier_ttl = 0
             else:
@@ -274,12 +285,12 @@ class BaseSwarmAgent:
             repulsion = 0.0
             p = self.config.repulsion_exponent
             for npos in neighbor_positions:
-                d = self._grid_distance(cell, npos)
+                d = self.grid_distance(cell, npos)
                 if d > 0:
                     repulsion += 1.0 / (d ** p)
 
             score = prob * novelty - self.config.repulsion_weight * repulsion
-            # Iter3 (docs/16): penalización estigmérgica por feromona de
+            # Penalización estigmérgica por feromona de
             # presencia depositada en el entorno por TODOS los agentes.
             # Es repulsión regional (no sólo vecinos en comm_range) y se
             # difumina sola si los depositantes desaparecen.
@@ -384,7 +395,7 @@ class BaseSwarmAgent:
 
     # -- Helpers --
 
-    def _grid_distance(self, a: tuple[int, int], b: tuple[int, int]) -> float:
+    def grid_distance(self, a: tuple[int, int], b: tuple[int, int]) -> float:
         """Distancia euclídea en metros entre dos celdas."""
         dr = (a[0] - b[0]) * self.env.grid.dy
         dc = (a[1] - b[1]) * self.env.grid.dx
@@ -403,13 +414,13 @@ class BaseSwarmAgent:
             return self.position
         arw = self.config.anti_revisit_window
         if arw <= 0:
-            return min(neighbors, key=lambda c: self._grid_distance(c, target))
+            return min(neighbors, key=lambda c: self.grid_distance(c, target))
 
         # Score = (distancia_al_target, antiguedad_de_visita_invertida)
         # Menor distancia primero; a igual distancia, celda visitada hace
         # más tiempo (o nunca → -inf → gana).
         def _key(c: tuple[int, int]) -> tuple[float, float]:
-            d = self._grid_distance(c, target)
+            d = self.grid_distance(c, target)
             last = self._visit_timestamps.get(c)
             # Sin visita: muy preferida (recencia = -infinito)
             recency = -float("inf") if last is None else float(last)
@@ -519,7 +530,7 @@ class DroneAgent(BaseSwarmAgent):
         # fallback genérico
         return 80.0 * np.tan(np.radians(45.0 / 2))
 
-    def _get_visible_cells(self) -> set[tuple[int, int]]:
+    def get_visible_cells(self) -> set[tuple[int, int]]:
         """Celdas visibles con calidad de detección modulada por terreno.
 
         Filtra celdas cuyo modificador de detección sea < 0.05 (prácticamente
@@ -552,7 +563,7 @@ class RobotDogAgent(BaseSwarmAgent):
             return self.config.detection_radius
         return 20.0
 
-    def _get_visible_cells(self) -> set[tuple[int, int]]:
+    def get_visible_cells(self) -> set[tuple[int, int]]:
         """Celdas visibles filtradas por calidad de detección terrestre.
 
         Filtra celdas donde el perro no puede detectar nada (agua=0).

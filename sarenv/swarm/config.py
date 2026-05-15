@@ -25,9 +25,9 @@ class AgentConfig:
     repulsion_weight: float = 0.3      # peso de la repulsión entre agentes cercanos
     repulsion_exponent: float = 1.0    # exponente p en repulsion ~ 1/d^p
     exploration_weight: float = 0.001  # bonus aditivo para celdas no visitadas
-    # Iteración 3 (docs/16): peso del campo de feromona de presencia
-    # depositado en el entorno por todos los agentes.
-    # Default 0.01 = óptimo del barrido iter3.b en sarenv_s1
+    # Peso del campo de feromona de presencia depositado en el entorno
+    # por todos los agentes (estigmergia, ver docs/16).
+    # Default 0.01 = óptimo del barrido en sarenv_s1
     # (+7.1% prob_coverage vs 0.0, +5.2% eff en maigmo).
     # Estigmergia pura (Payton 2001 / Howard et al. 2002 / Parunak 2002).
     presence_weight: float = 0.01
@@ -87,11 +87,7 @@ class DroneConfig(AgentConfig):
 
 @dataclass
 class RobotDogConfig(AgentConfig):
-    """Parámetros del robot perro terrestre.
-
-    En Fase 1 se comporta igual que un dron (movimiento uniforme).
-    En Fase 2 se añadirá restricción de terreno con max_slope.
-    """
+    """Parámetros del robot perro terrestre."""
 
     agent_type: Literal["drone", "robot_dog"] = "robot_dog"
     sensor_range: float = 20.0   # radio de detección a nivel de suelo (metros)
@@ -123,7 +119,7 @@ class SwarmConfig:
     alert_evaporation_rate: float = 0.005 # las alertas decaen más lento
     deposit_rate: float = 1.0             # intensidad base del depósito
 
-    # -- Iteración 3 (docs/16): feromona de presencia estigmérgica --
+    # -- Feromona de presencia estigmérgica (ver docs/16) --
     # Default seguro: deposit > 0 pero diffusion off y evaporación moderada.
     # El peso (presence_weight) está en AgentConfig y por defecto 0 → OFF.
     presence_deposit: float = 1.0          # cantidad depositada por agente/tick
@@ -142,7 +138,7 @@ class SwarmConfig:
 
     # -- Composición del enjambre --
     num_drones: int = 3
-    num_dogs: int = 0  # En Fase 1 solo drones; Fase 2 añade dogs
+    num_dogs: int = 0
     drone_config: DroneConfig = field(default_factory=DroneConfig)
     dog_config: RobotDogConfig = field(default_factory=RobotDogConfig)
 

@@ -4,7 +4,7 @@ Evaluador comparativo que ejecuta la simulación de enjambre y los
 algoritmos centralizados (greedy, spiral, pizza, etc.) sobre el MISMO
 escenario, y devuelve un DataFrame unificado con todas las métricas.
 
-Fase 4 del TFG: el corazón de la comparativa experimental.
+Es el corazón de la comparativa experimental del TFG.
 """
 from __future__ import annotations
 
@@ -27,6 +27,16 @@ from .metrics import SwarmMetrics
 from .simulator import SwarmSimulator
 
 log = get_logger()
+
+# Claves comunes a todas las filas del DataFrame de comparativa.
+# Centralizadas para evitar drift entre _evaluate_swarm/_evaluate_baseline/_empty_row.
+METRIC_KEYS: tuple[str, ...] = (
+    "n_agents", "num_drones", "num_dogs", "max_hops", "Budget_m",
+    "Coverage_ratio", "Prob_covered_ratio", "Overlap_ratio",
+    "Victims_pct", "Area_km2", "Path_length_km",
+    "Likelihood", "TD_Score",
+    "Time_first_victim", "Efficiency_ratio", "Latency", "Elapsed_s",
+)
 
 
 class SwarmComparativeEvaluator:
@@ -313,6 +323,20 @@ class SwarmComparativeEvaluator:
 
     # ── Algoritmos centralizados ───────────────────────────────────
 
+    def _make_path_evaluator(self, item: SARDatasetItem, victims_gdf) -> PathEvaluator:
+        """Construye un PathEvaluator con los parámetros estándar del evaluador."""
+        meters_per_bin = int(np.ceil(
+            (item.bounds[2] - item.bounds[0]) / item.heatmap.shape[1]
+        ))
+        return PathEvaluator(
+            heatmap=item.heatmap,
+            extent=item.bounds,
+            victims=victims_gdf,
+            fov_deg=self.fov_deg,
+            altitude=self.altitude,
+            meters_per_bin=meters_per_bin,
+        )
+
     def _evaluate_baseline(
         self, item: SARDatasetItem, victims_gdf,
         algo_name: str, algo_func, n_agents: int, seed: int,
@@ -325,10 +349,6 @@ class SwarmComparativeEvaluator:
             env.bounds[2] - env.bounds[0],
             env.bounds[3] - env.bounds[1],
         ) / 2
-
-        meters_per_bin = int(np.ceil(
-            (env.bounds[2] - env.bounds[0]) / env.heatmap.shape[1]
-        ))
 
         t0 = time.perf_counter()
         # Los baselines interpretan 'budget' como budget TOTAL y lo dividen
@@ -359,49 +379,35 @@ class SwarmComparativeEvaluator:
         if not paths_result:
             return self._empty_row(n_agents, elapsed)
 
-        # PathEvaluator
-        pe = PathEvaluator(
-            heatmap=env.heatmap,
-            extent=env.bounds,
-            victims=victims_gdf,
-            fov_deg=self.fov_deg,
-            altitude=self.altitude,
-            meters_per_bin=meters_per_bin,
-        )
+        pe = self._make_path_evaluator(env, victims_gdf)
         pe_metrics = pe.calculate_all_metrics(paths_result, self.discount_factor)
-
         victim_pct = pe_metrics["victim_detection_metrics"].get("percentage_found", 0)
 
-        return {
+        row = dict.fromkeys(METRIC_KEYS)
+        row.update({
             "n_agents": n_agents,
             "num_drones": n_agents,
             "num_dogs": 0,
-            "max_hops": None,
             "Budget_m": self.budget_per_agent,
-            "Coverage_ratio": None,  # baselines no tienen este dato directamente
-            "Prob_covered_ratio": None,
-            "Overlap_ratio": None,
             "Victims_pct": victim_pct,
             "Area_km2": pe_metrics["area_covered"],
             "Path_length_km": pe_metrics["total_path_length"],
             "Likelihood": pe_metrics["total_likelihood_score"],
             "TD_Score": pe_metrics["total_time_discounted_score"],
-            "Time_first_victim": None,
-            "Efficiency_ratio": None,
-            "Latency": None,
             "Elapsed_s": round(elapsed, 1),
-        }
+        })
+        return row
 
     def _empty_row(self, n_agents: int, elapsed: float) -> dict:
-        return {
+        row = dict.fromkeys(METRIC_KEYS)
+        row.update({
             "n_agents": n_agents, "num_drones": n_agents, "num_dogs": 0,
-            "max_hops": None, "Budget_m": self.budget_per_agent,
-            "Coverage_ratio": None, "Prob_covered_ratio": None,
-            "Overlap_ratio": None, "Victims_pct": 0, "Area_km2": 0,
-            "Path_length_km": 0, "Likelihood": 0, "TD_Score": 0,
-            "Time_first_victim": None, "Efficiency_ratio": None,
-            "Latency": None, "Elapsed_s": round(elapsed, 1),
-        }
+            "Budget_m": self.budget_per_agent,
+            "Victims_pct": 0, "Area_km2": 0, "Path_length_km": 0,
+            "Likelihood": 0, "TD_Score": 0,
+            "Elapsed_s": round(elapsed, 1),
+        })
+        return row
 
     def _evaluate_baseline_with_failures(
         self, item: SARDatasetItem, victims_gdf,
@@ -422,9 +428,6 @@ class SwarmComparativeEvaluator:
             env.bounds[2] - env.bounds[0],
             env.bounds[3] - env.bounds[1],
         ) / 2
-        meters_per_bin = int(np.ceil(
-            (env.bounds[2] - env.bounds[0]) / env.heatmap.shape[1]
-        ))
 
         total_budget = self.budget_per_agent * n_agents
         t0 = time.perf_counter()
@@ -472,25 +475,20 @@ class SwarmComparativeEvaluator:
             else:
                 paths_result[i] = LineString()
 
-        pe = PathEvaluator(
-            heatmap=env.heatmap, extent=env.bounds, victims=victims_gdf,
-            fov_deg=self.fov_deg, altitude=self.altitude,
-            meters_per_bin=meters_per_bin,
-        )
+        pe = self._make_path_evaluator(env, victims_gdf)
         pe_metrics = pe.calculate_all_metrics(paths_result, self.discount_factor)
         victim_pct = pe_metrics["victim_detection_metrics"].get("percentage_found", 0)
 
-        return {
+        row = dict.fromkeys(METRIC_KEYS)
+        row.update({
             "n_agents": n_agents, "num_drones": n_agents, "num_dogs": 0,
-            "max_hops": None, "kill_fraction": kill_fraction,
             "Budget_m": self.budget_per_agent,
-            "Coverage_ratio": None, "Prob_covered_ratio": None,
-            "Overlap_ratio": None,
             "Victims_pct": victim_pct,
             "Area_km2": pe_metrics["area_covered"],
             "Path_length_km": pe_metrics["total_path_length"],
             "Likelihood": pe_metrics["total_likelihood_score"],
             "TD_Score": pe_metrics["total_time_discounted_score"],
-            "Time_first_victim": None, "Efficiency_ratio": None,
-            "Latency": None, "Elapsed_s": round(elapsed, 1),
-        }
+            "Elapsed_s": round(elapsed, 1),
+        })
+        row["kill_fraction"] = kill_fraction
+        return row

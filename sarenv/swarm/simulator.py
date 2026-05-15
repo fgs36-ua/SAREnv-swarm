@@ -133,7 +133,7 @@ class SwarmSimulator:
             nearby = [
                 other for other in active_agents
                 if other.id != agent.id
-                and agent._grid_distance(agent.position, other.position)
+                and agent.grid_distance(agent.position, other.position)
                    <= agent.config.comm_range
             ]
             perceptions[agent.id] = agent.perceive(nearby)
@@ -162,14 +162,10 @@ class SwarmSimulator:
         for agent in active_agents:
             if not agent.active:
                 continue
-            visible = agent._get_visible_cells()
-            # Contar celdas nuevas ANTES de actualizar (para anti-estancamiento)
-            new_cells = len(visible - agent.cells_ever_explored)
-            agent._recent_new_cells.append(new_cells)
-            # Acumular celdas observadas (inmune a evaporación, para métricas)
-            agent.cells_ever_explored.update(visible)
+            visible = agent.get_visible_cells()
+            agent.record_step_observation(visible)
             # Registrar cada celda con su calidad de detección específica
-            # según terreno (Fase 2: _detection_quality_at por agente)
+            # según terreno (_detection_quality_at por agente)
             for cell in visible:
                 quality = agent._detection_quality_at(cell[0], cell[1])
                 agent.knowledge.record_observation(
@@ -214,7 +210,7 @@ class SwarmSimulator:
         active = [a for a in self.agents if a.active]
         for i, a in enumerate(active):
             for b in active[i + 1:]:
-                dist = a._grid_distance(a.position, b.position)
+                dist = a.grid_distance(a.position, b.position)
                 comm_range = min(a.config.comm_range, b.config.comm_range)
                 if dist <= comm_range:
                     pairs.append((a, b))

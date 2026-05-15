@@ -259,12 +259,12 @@ species drone {
 
     aspect default {
         if (is_active) {
-            // Drone: círculo cyan (los dogs son cuadrados cyan; la forma
+            // Drone: triángulo cyan (los dogs son cuadrados cyan; la forma
             // basta para diferenciarlos sin necesidad de color distinto).
-            draw circle(5) color: #cyan border: #white;
+            draw triangle(7) color: #cyan border: #white;
         } else {
-            // Drone inactivo (presupuesto agotado): círculo gris visible
-            draw circle(4) color: rgb(40, 80, 90, 220) border: rgb(0, 180, 200, 180);
+            // Drone inactivo (presupuesto agotado): triángulo gris visible
+            draw triangle(6) color: rgb(40, 80, 90, 220) border: rgb(0, 180, 200, 180);
         }
 
         if (length(trail) > 1) {

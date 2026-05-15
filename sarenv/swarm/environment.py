@@ -2,11 +2,9 @@
 """
 Wrapper del grid sobre SARDatasetItem para el simulador de enjambre.
 
-Expone el mapa de probabilidad, mapas de terreno (detección y transitabilidad)
-y funciones de conversión de coordenadas mundo <-> grid.
-
-Fase 1: terreno uniforme (mismo coste en todas las celdas).
-Fase 2: detection_modifier_map y traversability_map por tipo de agente.
+Expone el mapa de probabilidad, mapas de terreno (detección y transitabilidad),
+funciones de conversión mundo <-> grid y un campo estigmérgico de presencia
+compartido por todos los agentes.
 """
 from __future__ import annotations
 
@@ -78,7 +76,7 @@ class SwarmEnvironment:
         self.center_x: float = (minx + maxx) / 2.0
         self.center_y: float = (miny + maxy) / 2.0
 
-        # -- Mapas de terreno (Fase 2) --
+        # -- Mapas de terreno por tipo de agente --
         # Rasterizar features vectoriales a grid de tipo de terreno
         self.terrain_grid: np.ndarray = _rasterize_features(
             dataset_item.features, rows, cols, minx, miny, dx, dy,
@@ -89,12 +87,10 @@ class SwarmEnvironment:
         self._traversability: dict[str, np.ndarray] = {}
 
         # ----------------------------------------------------------
-        # Iteración 3 (docs/16): campo de feromona de presencia.
-        #
-        # Estigmergia pura (Parunak 2002, Payton 2001, Howard et al.
-        # 2002): los agentes depositan +deposit en su celda cada tick;
-        # el campo difunde y evapora de forma pasiva en el entorno
-        # compartido. No requiere comunicación directa entre agentes
+        # Campo estigmérgico de presencia (Parunak 2002, Payton 2001,
+        # Howard et al. 2002): los agentes depositan +deposit en su
+        # celda cada tick; el campo difunde y evapora de forma pasiva
+        # en el entorno compartido. No requiere comunicación directa
         # ni control central; si un agente cae, su rastro se difumina
         # solo en O(1/presence_evaporation) ticks.
         # ----------------------------------------------------------
@@ -103,7 +99,7 @@ class SwarmEnvironment:
         )
 
     # ------------------------------------------------------------------
-    # Feromona de presencia (Iteración 3)
+    # Feromona de presencia
     # ------------------------------------------------------------------
 
     def deposit_presence(self, row: int, col: int, amount: float = 1.0) -> None:
@@ -178,7 +174,7 @@ class SwarmEnvironment:
         """True si la celda está dentro de los límites del mapa."""
         return 0 <= row < self.grid.rows and 0 <= col < self.grid.cols
 
-    # -- Detección (Fase 1: circular uniforme, como el greedy de SAREnv) --
+    # -- Detección: circular uniforme, como el greedy de SAREnv --
 
     def get_visible_cells(
         self,
@@ -216,7 +212,7 @@ class SwarmEnvironment:
 
         return visible
 
-    # -- Movimiento (Fase 1: coste uniforme, 8-conectado) --
+    # -- Movimiento: 8-conectado, coste modulado por terreno --
 
     # Offsets de los 8 vecinos
     NEIGHBOR_OFFSETS = [

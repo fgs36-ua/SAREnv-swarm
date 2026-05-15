@@ -2,9 +2,8 @@
 """
 Mapa de conocimiento local: cada agente mantiene su propia visión del mundo.
 
-En Fase 1 todos comparten el mismo mapa (max_hops=∞) para poder validar
-contra el algoritmo greedy existente. En Fase 3 cada agente tendrá su
-copia local y usará gossip para propagar actualizaciones.
+Con ``max_hops`` alto se comporta como un mapa global compartido; con valores
+bajos (1-3) cada agente mantiene su copia y usa gossip para propagar updates.
 """
 from __future__ import annotations
 
@@ -41,16 +40,9 @@ class LocalKnowledgeMap:
     """
 
     def __init__(self, probability_map: np.ndarray) -> None:
-        # Probabilidad de referencia (se copia, cada agente tiene la suya)
-        # Normalizamos a [0, 1] para que prob * novelty compita con repulsión
-        # en la función de score.  Los valores raw son ~1e-5 (distribución sobre
-        # todo el grid) y la repulsión es ~0.01, así que sin normalizar los
-        # agentes caen siempre a random walk.
-        raw = probability_map.copy().astype(np.float32)
-        pmax = raw.max()
-        if pmax > 0:
-            raw /= pmax
-        self.probability_map = raw
+        # Probabilidad de referencia (se copia, cada agente tiene la suya).
+        # SwarmEnvironment ya garantiza que viene normalizada en [0, 1].
+        self.probability_map = probability_map.astype(np.float32, copy=True)
 
         # Feromona de exploración: 0.0 = sin explorar, 1.0 = explorado al 100%
         self.exploration_map = np.zeros_like(self.probability_map, dtype=np.float32)
@@ -130,7 +122,7 @@ class LocalKnowledgeMap:
             )
             self._latest_updates[(r, c, "alert")] = update
 
-    # -- Helpers de gossip (Fase 3 los usará mucho más) --
+    # -- Helpers de gossip --
 
     # ------------------------------------------------------------------
     # Feromona de presencia LOCAL (swarm puro, gossip-merged)

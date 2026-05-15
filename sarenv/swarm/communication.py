@@ -2,9 +2,8 @@
 """
 Protocolo de comunicación gossip (epidémico) entre agentes del enjambre.
 
-En Fase 1 se usa max_hops muy alto (≈ mapa global compartido) para poder
-validar contra el greedy centralizado. En Fase 3 se limitará a hops
-acotados y ancho de banda real.
+``max_hops`` controla la profundidad de retransmisión; valores altos
+aproximan un mapa global compartido, valores bajos limitan la difusión.
 """
 from __future__ import annotations
 

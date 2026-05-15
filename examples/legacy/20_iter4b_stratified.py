@@ -112,7 +112,7 @@ def run_one(*, item, label, env_type, climate, num_drones,
         if do_kill and not killed and t == kill_at:
             target = next((a for a in sim.agents if a.id == KILL_AGENT_ID and a.active), None)
             if target is not None:
-                recovery_zone = set(target._get_visible_cells())
+                recovery_zone = set(target.get_visible_cells())
                 killed = sim.kill_agent(KILL_AGENT_ID)
 
         sim.step()
@@ -121,7 +121,7 @@ def run_one(*, item, label, env_type, climate, num_drones,
             for a in sim.agents:
                 if not a.active or a.id == KILL_AGENT_ID:
                     continue
-                vis = a._get_visible_cells()
+                vis = a.get_visible_cells()
                 hit = vis & recovery_zone
                 if hit:
                     if math.isnan(recovery_time):
