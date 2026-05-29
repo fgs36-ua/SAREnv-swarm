@@ -1,0 +1,6 @@
+Seed,Agent_id,Agent_type,Cumulative_prob_swept,Cells_explored
+42,drone_0,drone,0.0,115
+42,drone_1,drone,39.41609960794449,121
+42,drone_2,drone,38.040738850831985,120
+42,dog_0,robot_dog,4.939381919801235,40
+42,dog_1,robot_dog,19.916662752628326,40

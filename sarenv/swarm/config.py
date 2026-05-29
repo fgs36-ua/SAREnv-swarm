@@ -48,6 +48,22 @@ class AgentConfig:
     anti_revisit_window: int = 0       # nº de ticks recientes a penalizar
     anti_revisit_penalty: float = 0.0  # magnitud de la penalización (lineal en window)
 
+    # Hard-mask permanente sobre celdas ya observadas (E8, docs/20).
+    # Imita el comportamiento del greedy centralizado (set global de
+    # celdas observadas) pero respetando la naturaleza descentralizada
+    # del enjambre: la máscara se construye a partir de
+    # ``cells_ever_explored`` (propias, inmunes a evaporación) y de
+    # ``cells_gossip_explored`` (recibidas por gossip dentro de la
+    # ventana ``gossip_expiry_ticks``).
+    #
+    # En el scoring, cada celda candidata que pertenezca a esa máscara
+    # paga una penalización proporcional a su probabilidad efectiva:
+    #     score -= ever_explored_penalty * prob_eff
+    # - 0.0 → desactivado (compatibilidad con baselines previos).
+    # - 1.0 → hard-mask puro (re-visita solo si TODAS las vecinas están
+    #   también enmascaradas; en ese caso decide el resto del score).
+    ever_explored_penalty: float = 0.0
+
     # Dispersión por negociación (Reynolds 1987 / Boids-separation a escala
     # táctica): cuando un agente recibe gossip de un peer, registra su
     # posición. En el scoring suma un término que premia ir en dirección

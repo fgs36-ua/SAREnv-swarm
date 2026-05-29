@@ -36,6 +36,10 @@ METRIC_KEYS: tuple[str, ...] = (
     "Victims_pct", "Area_km2", "Path_length_km",
     "Likelihood", "TD_Score",
     "Time_first_victim", "Efficiency_ratio", "Latency", "Elapsed_s",
+    # E6/E7/E8/E9 (docs/20): parámetros barridos y nuevas métricas
+    "Comm_range", "Evaporation_rate", "Alert_evaporation_rate",
+    "Ever_explored_penalty",
+    "Agent_prob_gini", "Mean_prob_swept", "Total_prob_swept",
 )
 
 
@@ -82,6 +86,12 @@ class SwarmComparativeEvaluator:
         presence_diffusion_sigma: float = 0.5,
         pheromone_attenuation: float = 0.1,
         dispersal_weight: float = 0.1,
+        # E6/E7/E8 (docs/20): parámetros barribles desde el evaluador.
+        # ``None`` significa "no sobreescribir el default de SwarmConfig/AgentConfig".
+        comm_range: float | None = None,
+        evaporation_rate: float | None = None,
+        alert_evaporation_rate: float | None = None,
+        ever_explored_penalty: float | None = None,
     ) -> None:
         self.dataset_dir = dataset_dir
         self.size = size
@@ -97,6 +107,10 @@ class SwarmComparativeEvaluator:
         self.presence_diffusion_sigma = presence_diffusion_sigma
         self.pheromone_attenuation = pheromone_attenuation
         self.dispersal_weight = dispersal_weight
+        self.comm_range = comm_range
+        self.evaporation_rate = evaporation_rate
+        self.alert_evaporation_rate = alert_evaporation_rate
+        self.ever_explored_penalty = ever_explored_penalty
 
         # Configuraciones de enjambre a probar (cada una es un escenario)
         # Si no se pasan, se usa una configuración por defecto
@@ -196,6 +210,10 @@ class SwarmComparativeEvaluator:
             c.presence_weight = self.presence_weight
             c.pheromone_attenuation = self.pheromone_attenuation
             c.dispersal_weight = self.dispersal_weight
+            if self.comm_range is not None:
+                c.comm_range = self.comm_range
+            if self.ever_explored_penalty is not None:
+                c.ever_explored_penalty = self.ever_explored_penalty
 
         config = SwarmConfig(
             num_drones=num_drones,
@@ -207,6 +225,10 @@ class SwarmComparativeEvaluator:
             dog_config=dog_cfg,
             presence_diffusion_sigma=self.presence_diffusion_sigma,
         )
+        if self.evaporation_rate is not None:
+            config.evaporation_rate = self.evaporation_rate
+        if self.alert_evaporation_rate is not None:
+            config.alert_evaporation_rate = self.alert_evaporation_rate
 
         t0 = time.perf_counter()
         sim = SwarmSimulator.from_dataset_item(item, config, seed=seed)
@@ -240,6 +262,14 @@ class SwarmComparativeEvaluator:
             "Efficiency_ratio": report["efficiency_ratio"],
             "Latency": report["info_propagation_latency"],
             "Elapsed_s": round(elapsed, 1),
+            # E6/E7/E8/E9 (docs/20)
+            "Comm_range": drone_cfg.comm_range,
+            "Evaporation_rate": config.evaporation_rate,
+            "Alert_evaporation_rate": config.alert_evaporation_rate,
+            "Ever_explored_penalty": drone_cfg.ever_explored_penalty,
+            "Agent_prob_gini": report.get("agent_probability_gini", 0.0),
+            "Mean_prob_swept": report.get("mean_probability_swept", 0.0),
+            "Total_prob_swept": report.get("total_probability_swept", 0.0),
         }
 
     def _evaluate_swarm_with_failures(
@@ -264,6 +294,10 @@ class SwarmComparativeEvaluator:
             c.presence_weight = self.presence_weight
             c.pheromone_attenuation = self.pheromone_attenuation
             c.dispersal_weight = self.dispersal_weight
+            if self.comm_range is not None:
+                c.comm_range = self.comm_range
+            if self.ever_explored_penalty is not None:
+                c.ever_explored_penalty = self.ever_explored_penalty
 
         config = SwarmConfig(
             num_drones=num_drones,
@@ -275,6 +309,10 @@ class SwarmComparativeEvaluator:
             dog_config=dog_cfg,
             presence_diffusion_sigma=self.presence_diffusion_sigma,
         )
+        if self.evaporation_rate is not None:
+            config.evaporation_rate = self.evaporation_rate
+        if self.alert_evaporation_rate is not None:
+            config.alert_evaporation_rate = self.alert_evaporation_rate
 
         t0 = time.perf_counter()
         sim = SwarmSimulator.from_dataset_item(item, config, seed=seed)
@@ -319,6 +357,14 @@ class SwarmComparativeEvaluator:
             "Efficiency_ratio": report["efficiency_ratio"],
             "Latency": report["info_propagation_latency"],
             "Elapsed_s": round(elapsed, 1),
+            # E6/E7/E8/E9 (docs/20)
+            "Comm_range": drone_cfg.comm_range,
+            "Evaporation_rate": config.evaporation_rate,
+            "Alert_evaporation_rate": config.alert_evaporation_rate,
+            "Ever_explored_penalty": drone_cfg.ever_explored_penalty,
+            "Agent_prob_gini": report.get("agent_probability_gini", 0.0),
+            "Mean_prob_swept": report.get("mean_probability_swept", 0.0),
+            "Total_prob_swept": report.get("total_probability_swept", 0.0),
         }
 
     # ── Algoritmos centralizados ───────────────────────────────────

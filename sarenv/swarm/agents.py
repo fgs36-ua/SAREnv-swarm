@@ -71,6 +71,12 @@ class BaseSwarmAgent:
         # Acumulador de celdas observadas a lo largo de TODA la simulación
         # (inmune a evaporación, para métricas fiables)
         self.cells_ever_explored: set[tuple[int, int]] = set()
+        # E9 (docs/20): masa de probabilidad nueva barrida por este
+        # agente. Se incrementa en ``record_step_observation`` con la
+        # suma de ``env.probability_map[r, c]`` sobre las celdas recién
+        # observadas (no contadas en ticks anteriores). Sirve para
+        # cuantificar el reparto de carga entre agentes (Gini, etc.).
+        self.cumulative_probability_swept: float = 0.0
 
         self._rng = rng or np.random.default_rng()
 
@@ -115,12 +121,19 @@ class BaseSwarmAgent:
     def record_step_observation(self, visible: set[tuple[int, int]]) -> None:
         """Actualiza el bookkeeping del agente con las celdas visibles del tick.
 
-        Cuenta celdas nuevas para el detector de estancamiento y las acumula
-        en ``cells_ever_explored`` (resistente a evaporación, usado por métricas).
+        Cuenta celdas nuevas para el detector de estancamiento, las acumula
+        en ``cells_ever_explored`` (resistente a evaporación, usado por métricas),
+        y suma la masa de probabilidad de las celdas nuevas en
+        ``cumulative_probability_swept`` (E9, docs/20).
         Llamado por el simulador después de la fase de observación.
         """
-        new_cells = len(visible - self.cells_ever_explored)
-        self._recent_new_cells.append(new_cells)
+        new_set = visible - self.cells_ever_explored
+        self._recent_new_cells.append(len(new_set))
+        if new_set:
+            pmap = self.env.probability_map
+            self.cumulative_probability_swept += float(
+                sum(pmap[r, c] for (r, c) in new_set)
+            )
         self.cells_ever_explored.update(visible)
 
     def _get_reachable_neighbors(self) -> list[tuple[int, int]]:
@@ -290,6 +303,22 @@ class BaseSwarmAgent:
                     repulsion += 1.0 / (d ** p)
 
             score = prob * novelty - self.config.repulsion_weight * repulsion
+            # E8 (docs/20): hard-mask permanente sobre celdas ya observadas.
+            # Imita el set global de celdas observadas del greedy centralizado.
+            # La máscara incluye tanto celdas propias (cells_ever_explored)
+            # como recibidas por gossip dentro del TTL. Con coeficiente 1.0,
+            # la penalización iguala a ``prob_eff`` y deja el score ≈ -rep
+            # para las celdas conocidas, replicando el efecto del hard-mask.
+            eep = self.config.ever_explored_penalty
+            if eep > 0:
+                in_own = cell in self.cells_ever_explored
+                in_gossip = False
+                if not in_own:
+                    ts = self.knowledge.cells_gossip_explored.get(cell)
+                    if ts is not None and (timestep - ts) < self.knowledge.gossip_expiry_ticks:
+                        in_gossip = True
+                if in_own or in_gossip:
+                    score -= eep * prob
             # Penalización estigmérgica por feromona de
             # presencia depositada en el entorno por TODOS los agentes.
             # Es repulsión regional (no sólo vecinos en comm_range) y se

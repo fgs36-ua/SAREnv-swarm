@@ -2,19 +2,26 @@
 """
 Fase 4 — Experimentos comparativos del TFG.
 
-Ejecuta 3 experimentos clave:
+Nueve experimentos cubriendo la evaluación completa del enjambre:
   1. Enjambre heterogéneo vs algoritmos centralizados (Greedy, Spiral, Pizza)
   2. Solo drones vs solo perros vs mixto
   3. Impacto de max_hops {0, 1, 3, 999}
+  4. Escalabilidad con N agentes (budget total fijo)
+  5. Resiliencia ante fallos (kill_fraction {0, 0.2, 0.4, 0.6})
+  6. Rango de gossip ``comm_range`` (E6, docs/20)
+  7. Persistencia de feromonas (``evaporation_rate``, E7, docs/20)
+  8. Hard-mask sobre celdas observadas (``ever_explored_penalty``, E8)
+  9. Reparto de carga por agente (índice de Gini, E9, docs/20)
 
 Para cada experimento se repiten varias semillas (--seeds) y se guardan
 los resultados en results/ como CSV + gráficas en graphs/.
 
 Uso:
-    python examples/10_phase4_experiments.py                     # Todos los experimentos
-    python examples/10_phase4_experiments.py --exp 1             # Solo experimento 1
-    python examples/10_phase4_experiments.py --exp 2 --seeds 3   # Exp 2 con 3 semillas
-    python examples/10_phase4_experiments.py --budget 200000     # Budget más alto
+    python examples/10_phase4_experiments.py                   # Todos
+    python examples/10_phase4_experiments.py --exp 1           # Solo E1
+    python examples/10_phase4_experiments.py --exp 6 7 8 9     # Solo nuevos
+    python examples/10_phase4_experiments.py --exp 2 --seeds 3 # Exp 2 con 3 semillas
+    python examples/10_phase4_experiments.py --budget 200000   # Budget más alto
 """
 from __future__ import annotations
 
@@ -42,8 +49,9 @@ SEED_LIST = [42, 123, 456, 789, 2025]
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Fase 4 — Experimentos comparativos")
-    p.add_argument("--exp", type=int, nargs="*", default=[1, 2, 3],
-                   help="Experimentos a ejecutar (1, 2, 3, 4, 5)")
+    p.add_argument("--exp", type=int, nargs="*", default=[1, 2, 3, 4, 5, 6, 7, 8, 9],
+                   help="Experimentos a ejecutar (1–9). E6–E9 son las pruebas"
+                        " adicionales descritas en docs/20.")
     p.add_argument("--dataset", type=str, default="maigmo_dataset")
     p.add_argument("--size", type=str, default="medium")
     p.add_argument("--budget", type=float, default=100_000,
@@ -561,6 +569,398 @@ def plot_experiment_5(df: pd.DataFrame) -> None:
 
 
 # ═══════════════════════════════════════════════════════════════════
+#  EXPERIMENTO 6: Rango de gossip (comm_range)  — docs/20 §E6
+# ═══════════════════════════════════════════════════════════════════
+
+def _sweep_swarm(
+    args: argparse.Namespace,
+    *,
+    label_fn,
+    overrides_list: list[dict],
+    base_cfg: dict | None = None,
+    extra_eval_kwargs_fn=lambda o: {},
+) -> pd.DataFrame:
+    """Helper común para barridos: ejecuta un único swarm_config por valor
+    del barrido, sin baselines centralizados (ya están en E1).
+
+    ``overrides_list`` es una lista de dicts; por cada entrada se crea un
+    ``SwarmComparativeEvaluator`` con los kwargs devueltos por
+    ``extra_eval_kwargs_fn(override)`` y se ejecuta el enjambre. Las filas
+    se etiquetan con ``label_fn(override)``.
+    """
+    seeds = SEED_LIST[:args.seeds]
+    base_cfg = base_cfg or {
+        "num_drones": 5, "num_dogs": 0, "max_hops": 1,
+        "max_steps": args.max_steps,
+    }
+    rows: list[pd.DataFrame] = []
+    for override in overrides_list:
+        label = label_fn(override)
+        log.info(f"  --- {label} ---")
+        evaluator = SwarmComparativeEvaluator(
+            dataset_dir=args.dataset,
+            size=args.size,
+            num_victims=args.num_victims,
+            seeds=seeds,
+            budget_per_agent=args.budget,
+            swarm_configs=[{**base_cfg, "label": label}],
+            **extra_eval_kwargs_fn(override),
+        )
+        df_o = evaluator.run_all()
+        df_o = df_o[df_o["Algorithm"] == label].copy()
+        for k, v in override.items():
+            df_o[k] = v
+        rows.append(df_o)
+    return pd.concat(rows, ignore_index=True)
+
+
+def experiment_6(args: argparse.Namespace) -> pd.DataFrame:
+    """Barrido de ``comm_range`` ∈ {250, 500, 1000, 2000, 5000} m.
+
+    Mide cómo afecta el alcance de gossip a la cobertura, solapamiento y
+    reparto de carga (Gini E9).
+    """
+    log.info("=" * 70)
+    log.info("  EXPERIMENTO 6: Rango de gossip (comm_range)")
+    log.info("=" * 70)
+
+    sweeps = [{"Comm_range": cr} for cr in (250.0, 500.0, 1000.0, 2000.0, 5000.0)]
+    df = _sweep_swarm(
+        args,
+        label_fn=lambda o: f"comm_{int(o['Comm_range'])}",
+        overrides_list=sweeps,
+        extra_eval_kwargs_fn=lambda o: {"comm_range": o["Comm_range"]},
+    )
+    csv_path = RESULTS_DIR / "exp6_comm_range.csv"
+    df.to_csv(csv_path, index=False)
+    log.info(f"  >> Resultados guardados en {csv_path}")
+    return df
+
+
+def plot_experiment_6(df: pd.DataFrame) -> None:
+    """Gráfica de evolución con comm_range en eje X (log)."""
+    metrics = [
+        ("Prob_covered_ratio", "Prob. cubierta (ratio)"),
+        ("Overlap_ratio", "Solapamiento (ratio)"),
+        ("Victims_pct", "Víctimas encontradas (%)"),
+        ("Agent_prob_gini", "Gini reparto por agente (E9)"),
+    ]
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+    fig.suptitle(
+        "Experimento 6: Impacto del rango de gossip (comm_range)",
+        fontsize=15, fontweight="bold",
+    )
+    for ax, (col, ylabel) in zip(axes.flat, metrics):
+        agg = df.groupby("Comm_range")[col].agg(["mean", "std"]).sort_index()
+        ax.errorbar(
+            agg.index.astype(float), agg["mean"], yerr=agg["std"],
+            marker="o", linewidth=2, capsize=5,
+            color="#2196F3", markersize=8,
+        )
+        ax.set_xscale("log")
+        ax.set_xlabel("comm_range (m)")
+        ax.set_ylabel(ylabel)
+        ax.grid(alpha=0.3, which="both")
+        for x, m in zip(agg.index, agg["mean"]):
+            ax.annotate(f"{m:.3f}", (x, m), textcoords="offset points",
+                        xytext=(0, 10), ha="center", fontsize=9)
+    plt.tight_layout()
+    out = GRAPHS_DIR / "exp6_comm_range.pdf"
+    fig.savefig(out, bbox_inches="tight")
+    fig.savefig(out.with_suffix(".png"), dpi=200, bbox_inches="tight")
+    plt.close(fig)
+    log.info(f"  >> Gráfica guardada en {out}")
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  EXPERIMENTO 7: Persistencia de feromonas (evaporation_rate) — docs/20 §E7
+# ═══════════════════════════════════════════════════════════════════
+
+def experiment_7(args: argparse.Namespace) -> pd.DataFrame:
+    """Barrido de ``evaporation_rate`` ∈ {0.02, 0.01, 0.005, 0.002, 0.001, 0.0}.
+
+    Mantiene ``alert_evaporation_rate`` proporcional (= evap/2). Mide si
+    aumentar la vida media de la feromona de exploración reduce el
+    re-visitado del centro (problema diagnosticado en docs/18).
+    """
+    log.info("=" * 70)
+    log.info("  EXPERIMENTO 7: Persistencia de feromonas (evaporation_rate)")
+    log.info("=" * 70)
+
+    sweeps = [{"Evaporation_rate": e} for e in (0.02, 0.01, 0.005, 0.002, 0.001, 0.0)]
+    df = _sweep_swarm(
+        args,
+        label_fn=lambda o: f"evap_{o['Evaporation_rate']:.4f}",
+        overrides_list=sweeps,
+        extra_eval_kwargs_fn=lambda o: {
+            "evaporation_rate": o["Evaporation_rate"],
+            "alert_evaporation_rate": o["Evaporation_rate"] / 2.0,
+        },
+    )
+    csv_path = RESULTS_DIR / "exp7_pheromone_persistence.csv"
+    df.to_csv(csv_path, index=False)
+    log.info(f"  >> Resultados guardados en {csv_path}")
+    return df
+
+
+def plot_experiment_7(df: pd.DataFrame) -> None:
+    """Gráfica de evolución con evaporation_rate (eje X invertido en log)."""
+    metrics = [
+        ("Prob_covered_ratio", "Prob. cubierta (ratio)"),
+        ("Overlap_ratio", "Solapamiento (ratio)"),
+        ("Victims_pct", "Víctimas encontradas (%)"),
+        ("Agent_prob_gini", "Gini reparto por agente (E9)"),
+    ]
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+    fig.suptitle(
+        "Experimento 7: Persistencia de feromonas (evaporation_rate)",
+        fontsize=15, fontweight="bold",
+    )
+    for ax, (col, ylabel) in zip(axes.flat, metrics):
+        agg = df.groupby("Evaporation_rate")[col].agg(["mean", "std"]).sort_index()
+        x_labels = [f"{e:g}" for e in agg.index]
+        ax.errorbar(
+            x_labels, agg["mean"], yerr=agg["std"],
+            marker="o", linewidth=2, capsize=5,
+            color="#4CAF50", markersize=8,
+        )
+        ax.set_xlabel("evaporation_rate (↘ = más persistencia)")
+        ax.set_ylabel(ylabel)
+        ax.grid(alpha=0.3)
+        for x, m in zip(x_labels, agg["mean"]):
+            ax.annotate(f"{m:.3f}", (x, m), textcoords="offset points",
+                        xytext=(0, 10), ha="center", fontsize=9)
+    plt.tight_layout()
+    out = GRAPHS_DIR / "exp7_pheromone_persistence.pdf"
+    fig.savefig(out, bbox_inches="tight")
+    fig.savefig(out.with_suffix(".png"), dpi=200, bbox_inches="tight")
+    plt.close(fig)
+    log.info(f"  >> Gráfica guardada en {out}")
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  EXPERIMENTO 8: Hard-mask de celdas observadas — docs/20 §E8
+# ═══════════════════════════════════════════════════════════════════
+
+def experiment_8(args: argparse.Namespace) -> pd.DataFrame:
+    """Barrido de ``ever_explored_penalty`` ∈ {0.0, 0.25, 0.5, 0.75, 1.0}.
+
+    Con 0.0 reproduce el baseline previo (feromona evaporable como única
+    señal de "ya visto"); con 1.0 emula el hard-mask del greedy
+    centralizado (re-visitar solo si todas las vecinas también están
+    enmascaradas).
+    """
+    log.info("=" * 70)
+    log.info("  EXPERIMENTO 8: Hard-mask sobre celdas observadas")
+    log.info("=" * 70)
+
+    sweeps = [{"Ever_explored_penalty": p} for p in (0.0, 0.25, 0.5, 0.75, 1.0)]
+    df = _sweep_swarm(
+        args,
+        label_fn=lambda o: f"eep_{o['Ever_explored_penalty']:.2f}",
+        overrides_list=sweeps,
+        extra_eval_kwargs_fn=lambda o: {
+            "ever_explored_penalty": o["Ever_explored_penalty"],
+        },
+    )
+    csv_path = RESULTS_DIR / "exp8_ever_explored_mask.csv"
+    df.to_csv(csv_path, index=False)
+    log.info(f"  >> Resultados guardados en {csv_path}")
+    return df
+
+
+def plot_experiment_8(df: pd.DataFrame) -> None:
+    """Gráfica de evolución con ever_explored_penalty en eje X."""
+    metrics = [
+        ("Prob_covered_ratio", "Prob. cubierta (ratio)"),
+        ("Overlap_ratio", "Solapamiento (ratio)"),
+        ("Victims_pct", "Víctimas encontradas (%)"),
+        ("Agent_prob_gini", "Gini reparto por agente (E9)"),
+    ]
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+    fig.suptitle(
+        "Experimento 8: Hard-mask sobre celdas observadas (ever_explored_penalty)",
+        fontsize=15, fontweight="bold",
+    )
+    for ax, (col, ylabel) in zip(axes.flat, metrics):
+        agg = df.groupby("Ever_explored_penalty")[col].agg(["mean", "std"]).sort_index()
+        ax.errorbar(
+            agg.index.astype(float), agg["mean"], yerr=agg["std"],
+            marker="o", linewidth=2, capsize=5,
+            color="#9C27B0", markersize=8,
+        )
+        ax.set_xlabel("ever_explored_penalty (0=OFF, 1=hard-mask)")
+        ax.set_ylabel(ylabel)
+        ax.grid(alpha=0.3)
+        for x, m in zip(agg.index, agg["mean"]):
+            ax.annotate(f"{m:.3f}", (x, m), textcoords="offset points",
+                        xytext=(0, 10), ha="center", fontsize=9)
+    plt.tight_layout()
+    out = GRAPHS_DIR / "exp8_ever_explored_mask.pdf"
+    fig.savefig(out, bbox_inches="tight")
+    fig.savefig(out.with_suffix(".png"), dpi=200, bbox_inches="tight")
+    plt.close(fig)
+    log.info(f"  >> Gráfica guardada en {out}")
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  EXPERIMENTO 9: Reparto de carga por agente — docs/20 §E9
+# ═══════════════════════════════════════════════════════════════════
+
+def experiment_9(args: argparse.Namespace) -> pd.DataFrame:
+    """Estadística de probabilidad acumulada por agente.
+
+    A diferencia de E6–E8 (que son barridos), E9 ejecuta UNA sola
+    configuración "buena" del enjambre y extrae las curvas
+    ``cumulative_probability_swept`` por agente, junto con el índice de
+    Gini sobre el reparto final. Sirve de complemento transversal al
+    resto del capítulo 6: la métrica también aparece en los DataFrames
+    de E1–E8 vía ``Agent_prob_gini``.
+    """
+    log.info("=" * 70)
+    log.info("  EXPERIMENTO 9: Reparto de carga por agente (probabilidad)")
+    log.info("=" * 70)
+
+    seeds = SEED_LIST[:args.seeds]
+    swarm_cfg = {
+        "num_drones": 3, "num_dogs": 2, "max_hops": 1,
+        "max_steps": args.max_steps,
+    }
+    rows: list[dict] = []
+    final_per_agent: list[dict] = []
+
+    for seed in seeds:
+        evaluator = SwarmComparativeEvaluator(
+            dataset_dir=args.dataset, size=args.size,
+            num_victims=args.num_victims, seeds=[seed],
+            budget_per_agent=args.budget,
+            swarm_configs=[{**swarm_cfg, "label": "Swarm_3D2P"}],
+        )
+        item, victims_gdf = evaluator._load_scenario(seed)
+        if item is None:
+            continue
+        # Re-ejecutamos manualmente para tener acceso al objeto sim
+        # (necesitamos las trayectorias por agente, no solo el resumen).
+        from sarenv.swarm.config import SwarmConfig, DroneConfig, RobotDogConfig
+        from sarenv.swarm.simulator import SwarmSimulator
+        from sarenv.swarm.metrics import SwarmMetrics
+
+        drone_cfg = DroneConfig(altitude=evaluator.altitude, fov_deg=evaluator.fov_deg)
+        dog_cfg = RobotDogConfig(sensor_range=20.0)
+        for c in (drone_cfg, dog_cfg):
+            c.anti_revisit_window = evaluator.anti_revisit_window
+            c.anti_revisit_penalty = evaluator.anti_revisit_penalty
+            c.presence_weight = evaluator.presence_weight
+            c.pheromone_attenuation = evaluator.pheromone_attenuation
+            c.dispersal_weight = evaluator.dispersal_weight
+        config = SwarmConfig(
+            num_drones=swarm_cfg["num_drones"],
+            num_dogs=swarm_cfg["num_dogs"],
+            budget_per_agent=args.budget,
+            max_steps=args.max_steps,
+            max_hops=swarm_cfg["max_hops"],
+            drone_config=drone_cfg, dog_config=dog_cfg,
+            presence_diffusion_sigma=evaluator.presence_diffusion_sigma,
+        )
+
+        sim = SwarmSimulator.from_dataset_item(item, config, seed=seed)
+        sim.run()
+        report = SwarmMetrics(sim, victims=victims_gdf).full_report()
+
+        rows.append({
+            "Seed": seed,
+            "Algorithm": "Swarm_3D2P",
+            "Total_prob_swept": report["total_probability_swept"],
+            "Mean_prob_swept": report["mean_probability_swept"],
+            "Agent_prob_gini": report["agent_probability_gini"],
+            "Coverage_ratio": report["coverage_ratio"],
+            "Prob_covered_ratio": report["probability_coverage_ratio"],
+        })
+        for aid, swept in report["per_agent_probability_swept"].items():
+            final_per_agent.append({
+                "Seed": seed,
+                "Agent_id": aid,
+                "Agent_type": "drone" if aid.startswith("drone") else "robot_dog",
+                "Cumulative_prob_swept": swept,
+                "Cells_explored": report["per_agent_explored"].get(aid, 0),
+            })
+
+    df_summary = pd.DataFrame(rows)
+    df_per_agent = pd.DataFrame(final_per_agent)
+
+    csv_path = RESULTS_DIR / "exp9_load_balance.csv"
+    df_summary.to_csv(csv_path, index=False)
+    per_agent_path = RESULTS_DIR / "exp9_load_balance_per_agent.csv"
+    df_per_agent.to_csv(per_agent_path, index=False)
+    log.info(f"  >> Resumen en {csv_path}")
+    log.info(f"  >> Detalle por agente en {per_agent_path}")
+    return df_summary
+
+
+def plot_experiment_9(df: pd.DataFrame) -> None:
+    """Gráficas E9: barras por agente, histograma del Gini, ECDF de reparto."""
+    per_agent_path = RESULTS_DIR / "exp9_load_balance_per_agent.csv"
+    if not per_agent_path.exists():
+        log.warning("  No se encontró el CSV per-agent de E9; salto plot.")
+        return
+    df_pa = pd.read_csv(per_agent_path)
+
+    fig, axes = plt.subplots(1, 3, figsize=(18, 5.5))
+    fig.suptitle(
+        "Experimento 9: Reparto de probabilidad cubierta por agente",
+        fontsize=14, fontweight="bold",
+    )
+
+    # (a) Probabilidad acumulada media por agente (barras con std entre semillas)
+    ax = axes[0]
+    agg = df_pa.groupby("Agent_id")["Cumulative_prob_swept"].agg(["mean", "std"])
+    agg = agg.sort_index()
+    colors = ["#2196F3" if aid.startswith("drone") else "#FF9800"
+              for aid in agg.index]
+    ax.bar(agg.index, agg["mean"], yerr=agg["std"], capsize=4,
+           color=colors, alpha=0.85, edgecolor="black")
+    ax.set_title("Probabilidad acumulada por agente (media ± std)")
+    ax.set_ylabel("∑ prob (celdas nuevas)")
+    ax.tick_params(axis="x", rotation=45)
+    ax.grid(axis="y", alpha=0.3)
+
+    # (b) Distribución del índice de Gini entre semillas
+    ax = axes[1]
+    ax.hist(df["Agent_prob_gini"].dropna(), bins=10,
+            color="#9C27B0", alpha=0.85, edgecolor="black")
+    ax.axvline(df["Agent_prob_gini"].mean(), color="red", linestyle="--",
+               label=f"media = {df['Agent_prob_gini'].mean():.3f}")
+    ax.set_title("Distribución del Gini entre semillas")
+    ax.set_xlabel("Gini (0 = reparto perfecto)")
+    ax.set_ylabel("Frecuencia")
+    ax.legend()
+    ax.grid(alpha=0.3)
+
+    # (c) ECDF del reparto: ordenamos agentes y vemos qué fracción
+    # acumula qué fracción de masa
+    ax = axes[2]
+    for seed, group in df_pa.groupby("Seed"):
+        vals = np.sort(group["Cumulative_prob_swept"].values)
+        total = vals.sum() or 1.0
+        cum = np.cumsum(vals) / total
+        x = np.linspace(0, 1, len(vals))
+        ax.plot(x, cum, marker="o", alpha=0.6, label=f"seed {seed}")
+    ax.plot([0, 1], [0, 1], "--", color="gray", label="reparto ideal")
+    ax.set_title("Curva de Lorenz (reparto de masa)")
+    ax.set_xlabel("Fracción de agentes (ordenados)")
+    ax.set_ylabel("Fracción acumulada de prob")
+    ax.legend(fontsize=8)
+    ax.grid(alpha=0.3)
+
+    plt.tight_layout()
+    out = GRAPHS_DIR / "exp9_load_balance.pdf"
+    fig.savefig(out, bbox_inches="tight")
+    fig.savefig(out.with_suffix(".png"), dpi=200, bbox_inches="tight")
+    plt.close(fig)
+    log.info(f"  >> Gráfica guardada en {out}")
+
+
+# ═══════════════════════════════════════════════════════════════════
 #  RESUMEN
 # ═══════════════════════════════════════════════════════════════════
 
@@ -571,6 +971,16 @@ def generate_summary_table(exp_dfs: dict[int, pd.DataFrame]) -> None:
 
     for exp_num, df in sorted(exp_dfs.items()):
         lines.append(f"\n## Experimento {exp_num}\n")
+        # Algunos experimentos (e.g. E9) usan columnas distintas; saltamos
+        # la tabla genérica si faltan las columnas esperadas.
+        required = {"Algorithm", "Likelihood", "Victims_pct", "Area_km2", "Elapsed_s"}
+        if not required.issubset(df.columns):
+            available = sorted(c for c in df.columns
+                               if df[c].dtype.kind in "fi" and c != "Seed")
+            lines.append(
+                f"_Resultados en CSV (columnas: {', '.join(available)})._"
+            )
+            continue
         # Media ± std por Algorithm
         agg = df.groupby("Algorithm").agg(
             Likelihood_mean=("Likelihood", "mean"),
@@ -633,6 +1043,26 @@ def main() -> None:
         df5 = experiment_5(args)
         exp_dfs[5] = df5
         plot_experiment_5(df5)
+
+    if 6 in args.exp:
+        df6 = experiment_6(args)
+        exp_dfs[6] = df6
+        plot_experiment_6(df6)
+
+    if 7 in args.exp:
+        df7 = experiment_7(args)
+        exp_dfs[7] = df7
+        plot_experiment_7(df7)
+
+    if 8 in args.exp:
+        df8 = experiment_8(args)
+        exp_dfs[8] = df8
+        plot_experiment_8(df8)
+
+    if 9 in args.exp:
+        df9 = experiment_9(args)
+        exp_dfs[9] = df9
+        plot_experiment_9(df9)
 
     # Tabla resumen
     if exp_dfs:

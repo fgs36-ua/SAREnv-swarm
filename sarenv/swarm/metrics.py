@@ -17,6 +17,27 @@ if TYPE_CHECKING:
     from .simulator import SwarmSimulator
 
 
+def _gini_coefficient(values: list[float]) -> float:
+    """\u00cdndice de Gini sobre una lista de valores no negativos.
+
+    Devuelve 0 si todos los valores son iguales (reparto perfectamente
+    equitativo) y tiende a 1 cuando uno acapara toda la masa. Devuelve
+    0.0 ante lista vac\u00eda o suma nula (caso degenerado: sin datos).
+    """
+    if not values:
+        return 0.0
+    arr = np.sort(np.asarray(values, dtype=np.float64))
+    if arr.size == 1:
+        return 0.0
+    total = float(arr.sum())
+    if total <= 0:
+        return 0.0
+    n = arr.size
+    gini = (2.0 * float(np.sum(np.arange(1, n + 1) * arr))) / (n * total)
+    gini -= (n + 1.0) / n
+    return float(gini)
+
+
 class SwarmMetrics:
     """Evaluación de una simulación de enjambre completada.
 
@@ -79,10 +100,14 @@ class SwarmMetrics:
         # Usar cells_ever_explored (acumulativo, inmune a evaporación)
         # en vez del exploration_map que decae cada tick.
         per_agent_explored: dict[str, int] = {}
+        per_agent_prob_swept: dict[str, float] = {}
         all_explored: set[tuple[int, int]] = set()
 
         for agent in self.sim.agents:
             per_agent_explored[agent.id] = len(agent.cells_ever_explored)
+            per_agent_prob_swept[agent.id] = float(
+                getattr(agent, "cumulative_probability_swept", 0.0)
+            )
             all_explored.update(agent.cells_ever_explored)
 
         total_explored = len(all_explored)
@@ -109,6 +134,7 @@ class SwarmMetrics:
                 prob_covered / prob_total if prob_total > 0 else 0
             ),
             "per_agent_explored": per_agent_explored,
+            "per_agent_probability_swept": per_agent_prob_swept,
             "total_timesteps": self.sim.timestep,
             "paths_lengths_m": {
                 a.id: a.get_path_linestring().length for a in self.sim.agents
@@ -248,6 +274,17 @@ class SwarmMetrics:
         summary["coverage_gini"] = agg["coverage_gini"]
         summary["cluster_ratio"] = agg["cluster_ratio"]
         summary["mean_pair_distance_cells"] = agg["mean_pair_distance_cells"]
+
+        # E9 (docs/20): reparto de carga entre agentes.
+        # Gini sobre ``cumulative_probability_swept`` por agente:
+        # 0 = reparto perfectamente equitativo, 1 = un agente acapara
+        # toda la masa de probabilidad cubierta.
+        sweeps = list(summary["per_agent_probability_swept"].values())
+        summary["agent_probability_gini"] = _gini_coefficient(sweeps)
+        summary["total_probability_swept"] = float(sum(sweeps))
+        summary["mean_probability_swept"] = (
+            float(np.mean(sweeps)) if sweeps else 0.0
+        )
 
         return summary
 
