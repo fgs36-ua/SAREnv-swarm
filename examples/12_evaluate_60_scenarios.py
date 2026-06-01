@@ -117,6 +117,28 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="No ejecutar algoritmos centralizados (solo swarm)",
     )
+    # E6–E8 (docs/21): overrides paramétricos sobre el SwarmConfig por defecto.
+    # Si se dejan a None, se mantienen los valores del config.
+    p.add_argument(
+        "--comm-range", type=float, default=None,
+        help="Override de comm_range (m) para drone+dog. Default: del config (500).",
+    )
+    p.add_argument(
+        "--evaporation-rate", type=float, default=None,
+        help="Override de evaporation_rate. Default: del config (0.01).",
+    )
+    p.add_argument(
+        "--alert-evaporation-rate", type=float, default=None,
+        help="Override de alert_evaporation_rate. Default: del config (0.005).",
+    )
+    p.add_argument(
+        "--ever-explored-penalty", type=float, default=None,
+        help="Override de ever_explored_penalty. Default: del config (0.0).",
+    )
+    p.add_argument(
+        "--tag", type=str, default="",
+        help="Sufijo opcional para los CSV/gráficas (e.g. 'best_cfg').",
+    )
     return p.parse_args()
 
 
@@ -245,15 +267,29 @@ def evaluate_scenario(
             )
 
         # ── Swarm ──
+        drone_cfg = DroneConfig(altitude=80.0, fov_deg=45.0)
+        dog_cfg = RobotDogConfig(sensor_range=20.0)
+        # E6–E8 overrides (docs/21)
+        if args.comm_range is not None:
+            drone_cfg.comm_range = args.comm_range
+            dog_cfg.comm_range = args.comm_range
+        if args.ever_explored_penalty is not None:
+            drone_cfg.ever_explored_penalty = args.ever_explored_penalty
+            dog_cfg.ever_explored_penalty = args.ever_explored_penalty
+
         config = SwarmConfig(
             num_drones=args.num_drones,
             num_dogs=args.num_dogs,
             budget_per_agent=budget,
             max_steps=args.max_steps,
             max_hops=args.max_hops,
-            drone_config=DroneConfig(altitude=80.0, fov_deg=45.0),
-            dog_config=RobotDogConfig(sensor_range=20.0),
+            drone_config=drone_cfg,
+            dog_config=dog_cfg,
         )
+        if args.evaporation_rate is not None:
+            config.evaporation_rate = args.evaporation_rate
+        if args.alert_evaporation_rate is not None:
+            config.alert_evaporation_rate = args.alert_evaporation_rate
 
         t0 = time.perf_counter()
         sim = SwarmSimulator.from_dataset_item(item, config, seed=seed)
@@ -575,17 +611,19 @@ def main() -> None:
         all_rows.extend(rows)
 
         # Guardar resultados parciales cada 5 escenarios
+        suffix = f"_{args.tag}" if args.tag else ""
         if (i + 1) % 5 == 0 or sid == scenario_ids[-1]:
             df_partial = pd.DataFrame(all_rows)
-            partial_path = RESULTS_DIR / "sarenv60_evaluation_partial.csv"
+            partial_path = RESULTS_DIR / f"sarenv60_evaluation_partial{suffix}.csv"
             df_partial.to_csv(partial_path, index=False)
             log.info(f"  >> Resultados parciales guardados ({len(all_rows)} filas)")
 
     total_elapsed = time.perf_counter() - total_t0
 
     # ── Resultados finales ──
+    suffix = f"_{args.tag}" if args.tag else ""
     df = pd.DataFrame(all_rows)
-    csv_path = RESULTS_DIR / "sarenv60_evaluation.csv"
+    csv_path = RESULTS_DIR / f"sarenv60_evaluation{suffix}.csv"
     df.to_csv(csv_path, index=False)
     log.info(f"\n{'=' * 70}")
     log.info(f"  RESULTADOS GUARDADOS: {csv_path}")

@@ -21,7 +21,10 @@ class AgentConfig:
 
     agent_type: Literal["drone", "robot_dog"] = "drone"
     budget: float = 100_000.0          # presupuesto de movimiento en metros
-    comm_range: float = 500.0          # alcance radio para gossip (metros)
+    # Alcance radio para gossip (metros). Default subido de 500 → 2000 m
+    # tras validación cruzada Maigmo + 8 escenarios SAREnv (docs/21 §6):
+    # mejora +3 pp víctimas, −13 % overlap en 14/16 simulaciones, 0 losses.
+    comm_range: float = 2000.0
     repulsion_weight: float = 0.3      # peso de la repulsión entre agentes cercanos
     repulsion_exponent: float = 1.0    # exponente p en repulsion ~ 1/d^p
     exploration_weight: float = 0.001  # bonus aditivo para celdas no visitadas
@@ -109,12 +112,9 @@ class RobotDogConfig(AgentConfig):
     sensor_range: float = 20.0   # radio de detección a nivel de suelo (metros)
     max_slope: float = 30.0      # pendiente máxima transitable (grados)
     speed_ms: float = 3.0        # velocidad de crucero m/s (informativo)
-    # Igualado al dron (500 m): un perro robot SAR real lleva radio
-    # equivalente. El valor previo (100 m) en mapas de 10 km hacía
-    # casi imposible cualquier gossip dog-X (probabilidad de coincidir
-    # < 100 m con un peer ≪ 1%). Sin esta paridad, los perros eran
-    # islas de información.
-    comm_range: float = 500.0
+    # Paridad con el dron: ambos suben a 2000 m tras docs/21 §6.
+    # Histórico: 100 → 500 (paridad básica) → 2000 (validado SAREnv).
+    comm_range: float = 2000.0
 
     @property
     def detection_radius(self) -> float:
@@ -144,7 +144,10 @@ class SwarmConfig:
     presence_diffusion_period: int = 5     # difundir cada N ticks (0 = off)
 
     # -- Comunicación gossip --
-    max_hops: int = 3              # profundidad máxima de retransmisión
+    # max_hops default actualizado de 3 → 1 tras E3 (Maigmó) y su validación cruzada
+    # sobre los 60 escenarios SAREnv (§6.9.5): valores >1 no aportan mejora medible
+    # y aumentan tráfico de mensajes innecesariamente.
+    max_hops: int = 1              # profundidad máxima de retransmisión
     bandwidth_limit: int = 200     # updates máximos por intercambio
     lookback_timesteps: int = 50   # ventana temporal para compartir
 
