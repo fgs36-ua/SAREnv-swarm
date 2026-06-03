@@ -178,7 +178,14 @@ def run_baseline(item, scenario_id: int, algo_name: str, algo_func,
         (item.bounds[2] - item.bounds[0]) / item.heatmap.shape[1]
     ))
 
-    cfg = PathGeneratorConfig(num_drones=n_agents, budget=budget)
+    # FIX BUDGET: compute_budget devuelve budget POR AGENTE (igual que el swarm
+    # lo usa: budget_per_agent=budget × N agentes). Los baselines centralizados
+    # de sarenv.analytics.paths reciben el budget TOTAL y lo dividen entre
+    # num_drones internamente (restrict_path_length con budget/num_drones).
+    # Por tanto, para que cada drone baseline reciba el mismo presupuesto por
+    # agente que un agente del enjambre, hay que pasarle budget * n_agents.
+    total_budget = budget * n_agents
+    cfg = PathGeneratorConfig(num_drones=n_agents, budget=total_budget)
     gen = PathGenerator(name=algo_name, func=algo_func, path_generator_config=cfg)
 
     t0 = time.perf_counter()

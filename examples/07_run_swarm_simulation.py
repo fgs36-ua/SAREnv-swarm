@@ -60,6 +60,10 @@ def parse_args() -> argparse.Namespace:
         help="Gossip trust depth (default: 3, use 999 for near-centralised)",
     )
     parser.add_argument(
+        "--num_dogs", type=int, default=0,
+        help="Number of dog robots in the swarm (default: 0)",
+    )
+    parser.add_argument(
         "--num_victims", type=int, default=100,
         help="Number of lost persons to generate for evaluation (default: 100)",
     )
@@ -104,7 +108,7 @@ def run_simulation(args: argparse.Namespace) -> None:
     # ── 3. Configure swarm ───────────────────────────────────────────
     config = SwarmConfig(
         num_drones=args.num_drones,
-        num_dogs=0,
+        num_dogs=args.num_dogs,
         budget_per_agent=args.budget,
         max_steps=args.max_steps,
         max_hops=args.max_hops,
@@ -185,7 +189,7 @@ def _plot_swarm_paths(item, simulator, summary, args) -> None:
         )
 
     ax.set_title(
-        f"Swarm Simulation — {args.num_drones} drones, "
+        f"Swarm Simulation — {args.num_drones} drones + {args.num_dogs} perros, "
         f"coverage {summary['coverage_ratio']:.1%}, "
         f"hops={args.max_hops}",
         fontsize=12,
@@ -196,7 +200,7 @@ def _plot_swarm_paths(item, simulator, summary, args) -> None:
 
     output_dir = Path("graphs")
     output_dir.mkdir(parents=True, exist_ok=True)
-    out_file = output_dir / f"swarm_{args.num_drones}drones_hops{args.max_hops}_{args.size}.png"
+    out_file = output_dir / f"swarm_{args.num_drones}d{args.num_dogs}p_hops{args.max_hops}_{args.size}.png"
     fig.savefig(out_file, dpi=150, bbox_inches="tight")
     plt.close(fig)
     log.info(f"Saved plot to {out_file}")
