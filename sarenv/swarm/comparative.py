@@ -36,7 +36,7 @@ METRIC_KEYS: tuple[str, ...] = (
     "Victims_pct", "Area_km2", "Path_length_km",
     "Likelihood", "TD_Score",
     "Time_first_victim", "Efficiency_ratio", "Latency", "Elapsed_s",
-    # E6/E7/E8/E9 (docs/20): parámetros barridos y nuevas métricas
+    # Parámetros de configuración del enjambre y métricas de reparto de carga
     "Comm_range", "Evaporation_rate", "Alert_evaporation_rate",
     "Ever_explored_penalty",
     "Agent_prob_gini", "Mean_prob_swept", "Total_prob_swept",
@@ -86,7 +86,7 @@ class SwarmComparativeEvaluator:
         presence_diffusion_sigma: float = 0.5,
         pheromone_attenuation: float = 0.1,
         dispersal_weight: float = 0.1,
-        # E6/E7/E8 (docs/20): parámetros barribles desde el evaluador.
+        # Parámetros de configuración del enjambre barridos desde el evaluador.
         # ``None`` significa "no sobreescribir el default de SwarmConfig/AgentConfig".
         comm_range: float | None = None,
         evaporation_rate: float | None = None,
@@ -262,7 +262,7 @@ class SwarmComparativeEvaluator:
             "Efficiency_ratio": report["efficiency_ratio"],
             "Latency": report["info_propagation_latency"],
             "Elapsed_s": round(elapsed, 1),
-            # E6/E7/E8/E9 (docs/20)
+            # Parámetros de configuración y métricas de reparto de carga
             "Comm_range": drone_cfg.comm_range,
             "Evaporation_rate": config.evaporation_rate,
             "Alert_evaporation_rate": config.alert_evaporation_rate,
@@ -357,7 +357,7 @@ class SwarmComparativeEvaluator:
             "Efficiency_ratio": report["efficiency_ratio"],
             "Latency": report["info_propagation_latency"],
             "Elapsed_s": round(elapsed, 1),
-            # E6/E7/E8/E9 (docs/20)
+            # Parámetros de configuración y métricas de reparto de carga
             "Comm_range": drone_cfg.comm_range,
             "Evaporation_rate": config.evaporation_rate,
             "Alert_evaporation_rate": config.alert_evaporation_rate,

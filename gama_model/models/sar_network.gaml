@@ -14,7 +14,7 @@
  *   INIT|nd|ndog|nv|cols|rows
  *   DRONE|idx|x|y|budget   DOG|idx|x|y|budget   VICTIM|idx|x|y
  *   INIT_END   TICK|step   AGENT|type|idx|x|y|budget|active
- *   FOUND|x|y   TICK_END   PHEROMONE   END
+ *   FOUND|x|y   TICK_END   LINKS|n|x1,y1,x2,y2;...   END
  */
 model SARNetwork
 
@@ -55,7 +55,7 @@ global skills: [network] {
         // NOTA: la conexión TCP se hace en el primer cycle (reflex
         // connect_to_python), no aquí. Esto actúa como handshake:
         // Python no recibe nada hasta que el usuario pulse Play.
-        write "** SAR Network v8 — Listo. Pulsa Play para conectar a " + python_host + ":" + string(python_port);
+        write "** SAR Network — Listo. Pulsa Play para conectar a " + python_host + ":" + string(python_port);
     }
 
     // Handshake: la conexión TCP se establece al pulsar Play (cuando
@@ -66,16 +66,11 @@ global skills: [network] {
         do connect to: python_host protocol: "tcp_client" port: python_port raw: true with_name: "python";
         connected_to_python <- true;
         last_status <- "Conectado. Esperando init...";
-        write "** v8 Conectado.";
+        write "** Conectado.";
     }
 
     // --- Reflex: leer y procesar mensajes TCP cada ciclo ---
     reflex fetch_data when: !simulation_ended {
-        // Debug heartbeat
-        if (mod(cycle, 5000) = 0) {
-            write "[v8] cycle=" + cycle + " mbox=" + length(mailbox) + " init=" + init_done + " step=" + current_step;
-        }
-
         // Cada mensaje del mailbox puede contener varias líneas
         // concatenadas por TCP coalescing (GAMA raw TCP elimina \n).
         // El delimitador ~ marca el fin de cada comando.
@@ -153,15 +148,6 @@ global skills: [network] {
                     ask target_drone {
                         do move_to(ax, ay, abudget, aactive);
                     }
-                } else {
-                    // Drone no existe aún (mensaje de INIT perdido): crearlo on-the-fly
-                    write "[WARN] Drone " + aidx + " no encontrado, creando on-the-fly en (" + ax + "," + ay + ")";
-                    create drone {
-                        agent_idx <- aidx;
-                        location <- {ax, ay};
-                        budget_left <- abudget;
-                        is_active <- aactive;
-                    }
                 }
                 int cx <- min(grid_cols - 1, max(0, int(ax)));
                 int cy <- min(grid_rows - 1, max(0, int(ay)));
@@ -171,14 +157,6 @@ global skills: [network] {
                 if (target_dog != nil) {
                     ask target_dog {
                         do move_to(ax, ay, abudget, aactive);
-                    }
-                } else {
-                    write "[WARN] Dog " + aidx + " no encontrado, creando on-the-fly en (" + ax + "," + ay + ")";
-                    create robot_dog {
-                        agent_idx <- aidx;
-                        location <- {ax, ay};
-                        budget_left <- abudget;
-                        is_active <- aactive;
                     }
                 }
                 int cx <- min(grid_cols - 1, max(0, int(ax)));
@@ -201,15 +179,6 @@ global skills: [network] {
         }
         else if (cmd = "TICK_END") {
             // Tick procesado
-        }
-        else if (cmd = "PHEROMONE") {
-            // Actualizar field desde la matriz local
-            exploration_field <- field(exploration_matrix);
-        }
-        else if (cmd = "GOSSIP_DATA" and length(parts) >= 4) {
-            // [DEPRECADO] El campo gossip ya no se renderiza como mesh
-            // (ocultaba a los agentes). Se ignora silenciosamente para
-            // mantener compatibilidad con servers viejos.
         }
         else if (cmd = "LINKS" and length(parts) >= 2) {
             // Formato: LINKS|n|x1,y1,x2,y2;x3,y3,x4,y4;...

@@ -71,11 +71,11 @@ class BaseSwarmAgent:
         # Acumulador de celdas observadas a lo largo de TODA la simulación
         # (inmune a evaporación, para métricas fiables)
         self.cells_ever_explored: set[tuple[int, int]] = set()
-        # E9 (docs/20): masa de probabilidad nueva barrida por este
-        # agente. Se incrementa en ``record_step_observation`` con la
-        # suma de ``env.probability_map[r, c]`` sobre las celdas recién
-        # observadas (no contadas en ticks anteriores). Sirve para
-        # cuantificar el reparto de carga entre agentes (Gini, etc.).
+        # Masa de probabilidad nueva barrida por este agente. Se incrementa
+        # en ``record_step_observation`` con la suma de
+        # ``env.probability_map[r, c]`` sobre las celdas recién observadas
+        # (no contadas en ticks anteriores). Sirve para cuantificar el
+        # reparto de carga entre agentes (Gini, etc.).
         self.cumulative_probability_swept: float = 0.0
 
         self._rng = rng or np.random.default_rng()
@@ -124,7 +124,7 @@ class BaseSwarmAgent:
         Cuenta celdas nuevas para el detector de estancamiento, las acumula
         en ``cells_ever_explored`` (resistente a evaporación, usado por métricas),
         y suma la masa de probabilidad de las celdas nuevas en
-        ``cumulative_probability_swept`` (E9, docs/20).
+        ``cumulative_probability_swept``.
         Llamado por el simulador después de la fase de observación.
         """
         new_set = visible - self.cells_ever_explored
@@ -303,7 +303,7 @@ class BaseSwarmAgent:
                     repulsion += 1.0 / (d ** p)
 
             score = prob * novelty - self.config.repulsion_weight * repulsion
-            # E8 (docs/20): hard-mask permanente sobre celdas ya observadas.
+            # Hard-mask permanente sobre celdas ya observadas.
             # Imita el set global de celdas observadas del greedy centralizado.
             # La máscara incluye tanto celdas propias (cells_ever_explored)
             # como recibidas por gossip dentro del TTL. Con coeficiente 1.0,

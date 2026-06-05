@@ -51,7 +51,7 @@ en el puerto 6869. Queda esperando a que GAMA se conecte.
 | `--num-victims` | 200 | Víctimas a generar |
 | `--max-steps` | 15000 | Ticks de simulación |
 | `--tick-delay-ms` | 50 | Pausa entre ticks (ms) |
-| `--pheromone-interval` | 25 | Cada cuántos ticks actualizar feromonas |
+| `--links-interval` | 1 | Cada cuántos ticks enviar enlaces de comunicación |
 | `--server-port` | 6869 | Puerto TCP del servidor |
 
 ## Notas

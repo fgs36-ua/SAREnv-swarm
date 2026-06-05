@@ -249,8 +249,6 @@ def run_with_gama_gui(
         # 7. Bucle de simulación tick a tick
         found_so_far: set[tuple[int, int]] = set()
         tick_delay = args.tick_delay_ms / 1000.0 if args.tick_delay_ms > 0 else 0
-        pheromone_interval = args.pheromone_interval
-        gossip_interval = args.gossip_interval
         links_interval = args.links_interval
 
         # Trail logging opcional: CSV con tick,agent_id,row,col,active,budget
@@ -299,14 +297,6 @@ def run_with_gama_gui(
                     snapshot, sim.agents, env,
                     found_victim_cells=new_found if new_found else None,
                 )
-
-                # Actualizar feromonas si toca
-                if pheromone_interval > 0 and (step_num + 1) % pheromone_interval == 0:
-                    server.send_pheromone(sim.agents, GAMA_INCLUDES_DIR)
-
-                # Enviar gossip field si toca (deprecado, off por defecto)
-                if gossip_interval > 0 and (step_num + 1) % gossip_interval == 0:
-                    server.send_gossip_field(sim.agents, timestep=sim.timestep)
 
                 # Enviar enlaces de comunicación activos (líneas entre agentes en rango)
                 if links_interval > 0 and (step_num + 1) % links_interval == 0:
@@ -417,10 +407,6 @@ def parse_args() -> argparse.Namespace:
                    help="Puerto del servidor TCP (default: 6869)")
     p.add_argument("--tick-delay-ms", type=int, default=50,
                    help="Delay en ms entre ticks (default: 50)")
-    p.add_argument("--pheromone-interval", type=int, default=25,
-                   help="Cada cuántos ticks refrescar exploration_field (default: 25)")
-    p.add_argument("--gossip-interval", type=int, default=0,
-                   help="[DEPRECADO] Antes mandaba el gossip mesh; ahora se ignora (deja 0).")
     p.add_argument("--links-interval", type=int, default=1,
                    help="Cada cuántos ticks enviar enlaces de comunicación (default: 1, 0=desactivado)")
     p.add_argument("--trail-log", type=str, default=None,

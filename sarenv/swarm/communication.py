@@ -70,7 +70,7 @@ class CommunicationProtocol:
         # registra dónde estaba el otro AHORA. Sin relay a terceros: si A
         # tenía info de C vista hace 20 ticks, no se la pasa a B (la posición
         # de C ya estaría obsoleta). Esto alimenta el término de dispersión
-        # del scoring (ver agents.py + docs/17_negociacion_dispersion.md).
+        # del scoring (ver el término de dispersión en agents.py).
         agent_a.knowledge.record_peer_position(
             agent_b.id, agent_b.position, current_timestep,
         )

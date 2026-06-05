@@ -269,13 +269,13 @@ class SwarmMetrics:
         summary["time_to_first_victim"] = ttfv
         summary["info_propagation_latency"] = latency
 
-        # Métricas de aglomeración (ver docs/16)
+        # Métricas de aglomeración del enjambre
         agg = self.aggregation_report()
         summary["coverage_gini"] = agg["coverage_gini"]
         summary["cluster_ratio"] = agg["cluster_ratio"]
         summary["mean_pair_distance_cells"] = agg["mean_pair_distance_cells"]
 
-        # E9 (docs/20): reparto de carga entre agentes.
+        # Reparto de carga entre agentes.
         # Gini sobre ``cumulative_probability_swept`` por agente:
         # 0 = reparto perfectamente equitativo, 1 = un agente acapara
         # toda la masa de probabilidad cubierta.

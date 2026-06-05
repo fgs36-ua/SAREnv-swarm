@@ -6,7 +6,7 @@ GAMA Platform (GUI, con visualización 3D) se conecta como cliente TCP
 usando su skill ``network``. Python ejecuta toda la lógica del enjambre
 y publica el estado como texto pipe-delimited cada tick.
 
-Protocolo (líneas delimitadas por newline, campos separados por ``|``):
+Protocolo (líneas delimitadas por ``~\n``, campos separados por ``|``):
     Python → GAMA:
         INIT|num_drones|num_dogs|num_victims|cols|rows
         DRONE|idx|x|y|budget
@@ -17,7 +17,7 @@ Protocolo (líneas delimitadas por newline, campos separados por ``|``):
         AGENT|type|idx|x|y|budget|active
         FOUND|x|y
         TICK_END
-        PHEROMONE
+        LINKS|n|x1,y1,x2,y2;...
         END
     GAMA → Python:
         READY
@@ -35,17 +35,11 @@ Uso::
 """
 from __future__ import annotations
 
-import csv
-import io
 import logging
-import os
 import socket
 import threading
 import time
-from pathlib import Path
 from typing import TYPE_CHECKING
-
-import numpy as np
 
 if TYPE_CHECKING:
     from .agents import BaseSwarmAgent
@@ -298,63 +292,6 @@ class GamaNetworkServer:
 
         self._send_line("TICK_END")
 
-    def send_pheromone(
-        self,
-        agents: list[BaseSwarmAgent],
-        includes_dir: Path,
-        max_dim: int = 100,
-    ) -> None:
-        """[DEPRECADO] Sólo emite la señal ``PHEROMONE``.
-
-        Antes escribía ``exploration_field.csv`` que GAMA nunca leía
-        (el ``.gaml`` mantiene su propia ``exploration_matrix`` que se
-        rellena desde los mensajes ``AGENT``). Para evitar I/O muerto
-        ahora sólo manda la señal de refresco. Mantener firma por
-        compatibilidad.
-        """
-        del agents, includes_dir, max_dim  # silenciar lint
-        self._send_line("PHEROMONE")
-
-    def send_gossip_field(
-        self,
-        agents: list[BaseSwarmAgent],
-        timestep: int,
-        max_dim: int = 80,
-    ) -> None:
-        """Envía a GAMA un campo 2D con la propagación gossip actual.
-
-        Para cada celda del grid se computa cuántos agentes la conocen
-        vía ``cells_gossip_explored`` (no expirado). Se downsamplea a
-        ``max_dim`` × ``max_dim`` por max-pooling y se envía inline en
-        un único mensaje TCP::
-
-            GOSSIP_DATA|cols|rows|v00,v01,...;v10,v11,...;...
-
-        Donde cada fila va separada por ``;`` y cada celda por ``,``.
-        Los valores son enteros [0, num_agents] (cuántos agentes
-        conocen esa celda).
-        """
-        if not agents:
-            return
-        # Cogemos la forma del primer agente (todos comparten grid).
-        shape = agents[0].knowledge.exploration_map.shape
-        field = np.zeros(shape, dtype=np.int16)
-        for a in agents:
-            expiry = a.knowledge.gossip_expiry_ticks
-            for (r, c), ts in a.knowledge.cells_gossip_explored.items():
-                if (timestep - ts) < expiry:
-                    field[r, c] += 1
-        if field.max() == 0:
-            return
-        ds = self._downsample_max(field.astype(np.float32), max_dim=max_dim)
-        rows, cols = ds.shape
-        # Empaquetar como string CSV-en-una-línea
-        row_strs = [
-            ",".join(f"{int(v)}" for v in row) for row in ds
-        ]
-        payload = ";".join(row_strs)
-        self._send_line(f"GOSSIP_DATA|{cols}|{rows}|{payload}")
-
     def send_comm_links(self, agents: list[BaseSwarmAgent]) -> None:
         """Envía a GAMA todos los pares de agentes activos en rango de
         comunicación mutuo, para que se dibujen como líneas.
@@ -437,53 +374,3 @@ class GamaNetworkServer:
                 self._client_socket = None
                 self._gama_connected.clear()
                 raise GamaDisconnected(str(e)) from e
-
-    @staticmethod
-    def _downsample_max(arr: np.ndarray, max_dim: int = 100) -> np.ndarray:
-        """Max-pooling para reducir resolución."""
-        h, w = arr.shape
-        factor = max(1, max(h, w) // max_dim)
-        if factor <= 1:
-            return arr
-        new_h = h // factor
-        new_w = w // factor
-        trimmed = arr[: new_h * factor, : new_w * factor]
-        return trimmed.reshape(new_h, factor, new_w, factor).max(axis=(1, 3))
-
-    @staticmethod
-    def _write_csv(arr: np.ndarray, path: Path) -> None:
-        """Escribe ndarray 2D como CSV de forma atómica.
-
-        Usa un fichero temporal en el mismo directorio + ``os.replace``
-        para evitar errores de I/O cuando GAMA tiene el CSV abierto para
-        lectura. Reintenta varias veces ante OSError transitorios
-        (Errno 22/13 típicos en Windows por bloqueos compartidos).
-        """
-        buf = io.StringIO()
-        writer = csv.writer(buf)
-        for row in arr:
-            writer.writerow([f"{v:.6g}" for v in row])
-        payload = buf.getvalue().encode("utf-8")
-
-        tmp_path = path.with_suffix(path.suffix + f".tmp.{os.getpid()}")
-        last_err: OSError | None = None
-        for attempt in range(5):
-            try:
-                with open(tmp_path, "wb") as f:
-                    f.write(payload)
-                    f.flush()
-                    os.fsync(f.fileno())
-                os.replace(tmp_path, path)
-                return
-            except OSError as e:
-                last_err = e
-                try:
-                    if tmp_path.exists():
-                        tmp_path.unlink()
-                except OSError:
-                    pass
-                time.sleep(0.05 * (attempt + 1))
-        # Si tras 5 intentos sigue fallando, propagamos para que el
-        # caller decida (send_pheromone lo captura y lo loguea).
-        assert last_err is not None
-        raise last_err
