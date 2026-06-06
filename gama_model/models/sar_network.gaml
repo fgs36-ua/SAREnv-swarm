@@ -8,7 +8,7 @@
  * Uso:
  *   1. python examples/14_gama_gui_visualization.py --scenario 1
  *   2. Doble-click en "Experiment sar_gui_network" en GAMA
- *   3. Pulsa ▶ (Play) en la barra de herramientas de GAMA
+ *   3. Pulsa (Play) en la barra de herramientas de GAMA
  *
  * Protocolo TCP (campos separados por |, cada comando termina en ~\n):
  *   INIT|nd|ndog|nv|cols|rows
@@ -27,11 +27,26 @@ global skills: [network] {
     file heatmap_file <- csv_file("../includes/heatmap.csv");
 
     // --- Fields para overlay ---
+    // prob_matrix conserva la resolución completa (p.ej. 1286x1286): de ella
+    // se derivan grid_cols/grid_rows, que fijan el tamaño del mundo y el mapeo
+    // de coordenadas de agentes y víctimas.
     matrix prob_matrix <- matrix(heatmap_file);
-    field probability_field <- field(prob_matrix);
     int grid_cols <- prob_matrix.columns;
     int grid_rows <- prob_matrix.rows;
-    matrix exploration_matrix <- 0.0 as_matrix {grid_cols, grid_rows};
+    // El heatmap se renderiza a resolución reducida para abaratar
+    // su único render (refresh:false). prob_display_matrix se rellena en init
+    // muestreando prob_matrix. prob_ds: ↑ más óptimo, ↓2 ≈ idéntico al original.
+    int prob_ds <- 2;
+    int disp_cols <- max(1, int(grid_cols / prob_ds));
+    int disp_rows <- max(1, int(grid_rows / prob_ds));
+    matrix prob_display_matrix <- 0.0 as_matrix {disp_cols, disp_rows};
+    field probability_field <- field(prob_display_matrix);
+    // El overlay de exploración se renderiza reducido
+    // explore_ds: ↑ más fluidez, ↓2 overlay más fino.
+    int explore_ds <- 4;
+    int explore_cols <- max(1, int(grid_cols / explore_ds));
+    int explore_rows <- max(1, int(grid_rows / explore_ds));
+    matrix exploration_matrix <- 0.0 as_matrix {explore_cols, explore_rows};
     field exploration_field <- field(exploration_matrix);
 
     // Redefinir el mundo al tamaño del heatmap (cols × rows). Hacerlo
@@ -50,17 +65,34 @@ global skills: [network] {
     bool init_done <- false;
     bool connected_to_python <- false;
     string last_status <- "Pulsa Play para conectar a Python...";
+    // Buffer TCP: se acumula el stream y solo se procesan comandos completos
+    // (terminados en '~'); el fragmento final sin terminador se guarda para
+    // el siguiente ciclo. Evita procesar a medias una línea partida por TCP.
+    string rx_buffer <- "";
+    // Control de flujo: comandos procesados y último valor confirmado a Python.
+    // GAMA envía "ACK|commands_processed" para que Python no mande más rápido
+    // de lo que GAMA puede consumir (si no, su cola de red descarta mensajes).
+    int commands_processed <- 0;
+    int last_acked_count <- -1;
 
     init {
-        // NOTA: la conexión TCP se hace en el primer cycle (reflex
-        // connect_to_python), no aquí. Esto actúa como handshake:
-        // Python no recibe nada hasta que el usuario pulse Play.
+        // Rellenar el heatmap de render muestreando prob_matrix (1 de cada
+        // prob_ds celdas). Se hace una sola vez aquí, al cargar el modelo y
+        // antes de Play, así que no interfiere con la ráfaga de red del init.
+        loop ix from: 0 to: disp_cols - 1 {
+            loop iy from: 0 to: disp_rows - 1 {
+                prob_display_matrix[{ix, iy}] <- float(prob_matrix[{ix * prob_ds, iy * prob_ds}]);
+            }
+        }
+        probability_field <- field(prob_display_matrix);
+
+        // La conexión TCP se hace en el primer cycle (reflex connect_to_python),
+        // no aquí: actúa como handshake, Python no envía nada hasta pulsar Play.
         write "** SAR Network — Listo. Pulsa Play para conectar a " + python_host + ":" + string(python_port);
     }
 
-    // Handshake: la conexión TCP se establece al pulsar Play (cuando
-    // los reflexes empiezan a correr). Python desbloquea su
-    // wait_for_gama() en ese momento y envía INIT.
+    // Handshake: al pulsar Play arrancan los reflexes y se conecta a Python,
+    // que entonces desbloquea su wait_for_gama() y envía INIT.
     reflex connect_to_python when: !connected_to_python {
         write "** Conectando a Python en " + python_host + ":" + string(python_port) + "...";
         do connect to: python_host protocol: "tcp_client" port: python_port raw: true with_name: "python";
@@ -71,20 +103,44 @@ global skills: [network] {
 
     // --- Reflex: leer y procesar mensajes TCP cada ciclo ---
     reflex fetch_data when: !simulation_ended {
-        // Cada mensaje del mailbox puede contener varias líneas
-        // concatenadas por TCP coalescing (GAMA raw TCP elimina \n).
-        // El delimitador ~ marca el fin de cada comando.
+        // 1) Drenar el mailbox al buffer (un mensaje puede traer varios
+        //    comandos juntos o solo un fragmento de uno). Guardamos el
+        //    remitente para devolverle el ACK de control de flujo.
+        message last_msg <- nil;
         loop while: has_more_message() {
             message msg <- fetch_message();
-            string raw <- string(msg.contents);
-            list<string> lines <- raw split_with "~";
-            loop line over: lines {
-                line <- line replace("\n", "");
-                line <- line replace("\r", "");
-                if (length(line) > 0) {
-                    do process_line(line);
+            rx_buffer <- rx_buffer + string(msg.contents);
+            last_msg <- msg;
+        }
+
+        // 2) Procesar solo comandos completos (terminados en '~'). El último
+        //    trozo, si está a medias, se conserva para el próximo ciclo.
+        if (rx_buffer != "" and (rx_buffer contains "~")) {
+            bool ends_complete <- copy_between(rx_buffer, length(rx_buffer) - 1, length(rx_buffer)) = "~";
+            list<string> tokens <- rx_buffer split_with "~";
+            int n <- length(tokens);
+            int process_count <- ends_complete ? n : (n - 1);
+            if (process_count > 0) {
+                loop i from: 0 to: process_count - 1 {
+                    string line <- tokens[i];
+                    line <- line replace("\n", "");
+                    line <- line replace("\r", "");
+                    if (length(line) > 0) {
+                        commands_processed <- commands_processed + 1;
+                        do process_line(line);
+                    }
                 }
             }
+            // Conservar el fragmento incompleto (o vaciar si todo era completo).
+            rx_buffer <- ends_complete ? "" : tokens[n - 1];
+        }
+
+        // 3) Control de flujo: confirmar a Python cuántos comandos llevamos
+        //    procesados. Así Python no envía más rápido de lo que GAMA puede
+        //    consumir y su cola de red no se satura (evita perder mensajes).
+        if (last_msg != nil and commands_processed != last_acked_count) {
+            do send to: last_msg.sender contents: ("ACK|" + string(commands_processed) + "~");
+            last_acked_count <- commands_processed;
         }
     }
 
@@ -121,9 +177,15 @@ global skills: [network] {
             }
         }
         else if (cmd = "VICTIM" and length(parts) >= 4) {
-            create victim {
-                location <- {float(parts[2]), float(parts[3])};
-                found <- false;
+            // Idempotente por índice: Python reenvía las víctimas para rellenar
+            // las que GAMA descartó en la ráfaga de init; no se duplican.
+            int vidx <- int(parts[1]);
+            if (empty(victim where (each.v_idx = vidx))) {
+                create victim {
+                    v_idx <- vidx;
+                    location <- {float(parts[2]), float(parts[3])};
+                    found <- false;
+                }
             }
         }
         else if (cmd = "INIT_END") {
@@ -148,9 +210,18 @@ global skills: [network] {
                     ask target_drone {
                         do move_to(ax, ay, abudget, aactive);
                     }
+                } else {
+                    // Red de seguridad: si el DRONE de init se perdió, crear el
+                    // agente aquí para que aparezca y se mueva.
+                    create drone {
+                        agent_idx <- aidx;
+                        location <- {ax, ay};
+                        budget_left <- abudget;
+                        is_active <- aactive;
+                    }
                 }
-                int cx <- min(grid_cols - 1, max(0, int(ax)));
-                int cy <- min(grid_rows - 1, max(0, int(ay)));
+                int cx <- min(explore_cols - 1, max(0, int(ax / explore_ds)));
+                int cy <- min(explore_rows - 1, max(0, int(ay / explore_ds)));
                 exploration_matrix[{cx, cy}] <- 1.0;
             } else if (atype = "robot_dog") {
                 robot_dog target_dog <- first(robot_dog where (each.agent_idx = aidx));
@@ -158,9 +229,18 @@ global skills: [network] {
                     ask target_dog {
                         do move_to(ax, ay, abudget, aactive);
                     }
+                } else {
+                    // Red de seguridad: igual que con los drones, si el DOG de
+                    // init se perdió se crea aquí.
+                    create robot_dog {
+                        agent_idx <- aidx;
+                        location <- {ax, ay};
+                        budget_left <- abudget;
+                        is_active <- aactive;
+                    }
                 }
-                int cx <- min(grid_cols - 1, max(0, int(ax)));
-                int cy <- min(grid_rows - 1, max(0, int(ay)));
+                int cx <- min(explore_cols - 1, max(0, int(ax / explore_ds)));
+                int cy <- min(explore_rows - 1, max(0, int(ay / explore_ds)));
                 exploration_matrix[{cx, cy}] <- 1.0;
             }
         }
@@ -275,6 +355,7 @@ species robot_dog {
 }
 
 species victim {
+    int v_idx <- -1;        // índice global (para reenvío idempotente)
     bool found <- false;
 
     action set_found {
@@ -301,14 +382,17 @@ experiment sar_gui_network type: gui {
 
     output synchronized: false {
         display main type: opengl background: #black {
-            // Heatmap de probabilidad (plano, sin elevación 3D)
+            // Heatmap de probabilidad: estático y reducido (ver prob_ds). Se
+            // dibuja una sola vez ('refresh: false'), no se re-renderiza/frame.
             mesh probability_field
                 color: palette([#black, #blue, #yellow, #orange, #red])
                 transparency: 0.3
-                smooth: true
+                smooth: false
+                refresh: false
                 scale: 0;
 
-            // Overlay: zonas exploradas (verde)
+            // Overlay: zonas exploradas (verde). Este SÍ cambia cada tick,
+            // así que se refresca normalmente.
             mesh exploration_field
                 color: palette([rgb(0,0,0,0), rgb(0, 255, 0, 150)])
                 transparency: 0.4

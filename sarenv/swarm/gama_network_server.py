@@ -36,6 +36,7 @@ Uso::
 from __future__ import annotations
 
 import logging
+import select
 import socket
 import threading
 import time
@@ -72,6 +73,20 @@ class GamaNetworkServer:
         self._lock = threading.Lock()
         self._gama_connected = threading.Event()
         self._accept_thread: threading.Thread | None = None
+        # --- Control de flujo (backpressure) con GAMA ---
+        # GAMA procesa los mensajes al ritmo de su render, más lento que la
+        # velocidad a la que Python los genera. Sin control de flujo su cola de
+        # red se satura y DESCARTA mensajes (víctimas/FOUND perdidos). GAMA
+        # confirma con "ACK|<n>~" cuántos comandos ha procesado; Python no se
+        # adelanta más de flow_window comandos sin confirmar. Si GAMA no envía
+        # ACKs (modelo antiguo), tras ack_timeout se desactiva y se sigue en
+        # modo best-effort (comportamiento previo), sin bloquear la simulación.
+        self.flow_control = True
+        self.flow_window = 50
+        self.ack_timeout = 10.0
+        self._commands_sent = 0
+        self._commands_acked = 0
+        self._ack_buf = b""
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -238,11 +253,22 @@ class GamaNetworkServer:
         # Pausa antes del bloque de víctimas
         time.sleep(0.2)
 
-        # Víctimas
-        for i, (r, c) in enumerate(sorted(victim_cells)):
-            x, y = c + 0.5, r + 0.5  # grid pixel coords
-            self._send_line(f"VICTIM|{i}|{x:.2f}|{y:.2f}")
-            _flush_chunk()
+        # Víctimas. El índice i identifica unívocamente a cada una, así que
+        # reenviar la lista es idempotente en GAMA (rellena las que falten).
+        sorted_victims = sorted(victim_cells)
+
+        def _send_victim_block() -> None:
+            for i, (r, c) in enumerate(sorted_victims):
+                x, y = c + 0.5, r + 0.5  # grid pixel coords
+                self._send_line(f"VICTIM|{i}|{x:.2f}|{y:.2f}")
+                _flush_chunk()
+
+        # Dos pasadas: GAMA descarta mensajes durante la ráfaga de init (está
+        # con el primer render pesado). La 2ª pasada, ya "caliente", rellena
+        # las víctimas perdidas en la 1ª. Ambas antes de INIT_END.
+        _send_victim_block()
+        time.sleep(0.6)
+        _send_victim_block()
 
         # Asegurar que el último chunk se ha drenado antes de INIT_END
         time.sleep(chunk_pause)
@@ -374,3 +400,73 @@ class GamaNetworkServer:
                 self._client_socket = None
                 self._gama_connected.clear()
                 raise GamaDisconnected(str(e)) from e
+        # Envío correcto: contabilizar para el control de flujo y, si vamos muy
+        # por delante de GAMA, esperar a que confirme (ACK) antes de continuar.
+        self._commands_sent += 1
+        self._throttle()
+
+    def _throttle(self) -> None:
+        """Espera (backpressure) si Python va muy por delante de GAMA.
+
+        Mantiene como mucho ``flow_window`` comandos "en vuelo" (enviados pero
+        no confirmados por GAMA), de modo que su cola de red nunca se sature.
+        Si GAMA no confirma en ``ack_timeout`` segundos, desactiva el control
+        de flujo y continúa en modo best-effort (no bloquea la simulación).
+        """
+        if not self.flow_control:
+            return
+        # Absorber los ACKs que ya hayan llegado (sin bloquear).
+        self._read_acks(0.0)
+        if (self._commands_sent - self._commands_acked) <= self.flow_window:
+            return
+        deadline = time.monotonic() + self.ack_timeout
+        while (self._commands_sent - self._commands_acked) > self.flow_window:
+            if not self._client_socket:
+                return
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                logger.warning(
+                    "Control de flujo: GAMA no envía ACK tras %.0fs; "
+                    "desactivado (modo best-effort).", self.ack_timeout,
+                )
+                self.flow_control = False
+                return
+            self._read_acks(min(0.2, remaining))
+
+    def _read_acks(self, timeout: float) -> None:
+        """Lee confirmaciones ``ACK|<n>~`` de GAMA y actualiza el contador.
+
+        ``n`` es el número de comandos que GAMA lleva procesados. Tomamos el
+        valor más alto visto. No bloqueante cuando ``timeout`` es 0.
+        """
+        sock = self._client_socket
+        if not sock:
+            return
+        try:
+            readable, _, _ = select.select([sock], [], [], timeout)
+        except (OSError, ValueError):
+            return
+        if not readable:
+            return
+        try:
+            chunk = sock.recv(4096)
+        except (BlockingIOError, socket.timeout):
+            return
+        except OSError:
+            return
+        if not chunk:
+            return  # GAMA cerró; lo detectará el siguiente envío.
+        self._ack_buf += chunk
+        while b"~" in self._ack_buf:
+            token, self._ack_buf = self._ack_buf.split(b"~", 1)
+            text = (
+                token.decode("utf-8", errors="ignore")
+                .replace("\n", "").replace("\r", "").strip()
+            )
+            if text.startswith("ACK|"):
+                try:
+                    n = int(text.split("|", 1)[1])
+                except (ValueError, IndexError):
+                    continue
+                if n > self._commands_acked:
+                    self._commands_acked = n
