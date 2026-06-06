@@ -68,20 +68,16 @@ class BaseSwarmAgent:
         self.budget_remaining: float = config.budget
         self.path: list[tuple[int, int]] = [start_position]
         self.active: bool = True  # False cuando se agota budget o vuelve a base
-        # Acumulador de celdas observadas a lo largo de TODA la simulación
-        # (inmune a evaporación, para métricas fiables)
+        # Celdas observadas en toda la simulación (inmune a evaporación, para métricas)
         self.cells_ever_explored: set[tuple[int, int]] = set()
-        # Masa de probabilidad nueva barrida por este agente. Se incrementa
-        # en ``record_step_observation`` con la suma de
-        # ``env.probability_map[r, c]`` sobre las celdas recién observadas
-        # (no contadas en ticks anteriores). Sirve para cuantificar el
-        # reparto de carga entre agentes (Gini, etc.).
+        # Masa de probabilidad nueva barrida por este agente (para reparto de
+        # carga: Gini, etc.). Se acumula en ``record_step_observation``.
         self.cumulative_probability_swept: float = 0.0
 
         self._rng = rng or np.random.default_rng()
 
-        # Seguimiento de transitabilidad media experimentada (para estimar
-        # coste real de vuelta a base en terrenos difíciles).
+        # Transitabilidad media experimentada (para estimar coste real de
+        # vuelta a base en terrenos difíciles).
         self._trav_sum: float = 0.0
         self._trav_count: int = 0
 
@@ -89,16 +85,13 @@ class BaseSwarmAgent:
         self._frontier_target: tuple[int, int] | None = None
         self._frontier_ttl: int = 0  # ticks restantes de compromiso
 
-        # Timestamp de última visita propia a cada celda (para decaimiento
-        # temporal de la penalización de novelty)
+        # Timestamp de última visita propia a cada celda (decaimiento de novelty)
         self._visit_timestamps: dict[tuple[int, int], int] = {}
-        # Constante de decaimiento temporal (en ticks): a los ~200 ticks
-        # una celda visitada recupera ~63% de su novelty.
+        # tau (ticks): a los ~200 ticks una celda recupera ~63% de su novelty.
         self._novelty_decay_tau: float = 200.0
 
-        # Anti-estancamiento: si en los últimos _stagnation_window pasos
-        # no descubrimos al menos _stagnation_threshold celdas nuevas,
-        # forzar búsqueda de frontera.
+        # Anti-estancamiento: si en _stagnation_window pasos no se descubren
+        # _stagnation_threshold celdas nuevas, forzar búsqueda de frontera.
         self._stagnation_window: int = 50       # ventana de ticks a mirar
         self._stagnation_threshold: int = 5     # mínimo de celdas nuevas
         self._recent_new_cells: list[int] = []  # historico de celdas nuevas/tick
@@ -121,11 +114,9 @@ class BaseSwarmAgent:
     def record_step_observation(self, visible: set[tuple[int, int]]) -> None:
         """Actualiza el bookkeeping del agente con las celdas visibles del tick.
 
-        Cuenta celdas nuevas para el detector de estancamiento, las acumula
-        en ``cells_ever_explored`` (resistente a evaporación, usado por métricas),
-        y suma la masa de probabilidad de las celdas nuevas en
-        ``cumulative_probability_swept``.
-        Llamado por el simulador después de la fase de observación.
+        Cuenta celdas nuevas (detector de estancamiento), las acumula en
+        ``cells_ever_explored`` y suma su masa de probabilidad en
+        ``cumulative_probability_swept``. Llamado por el simulador tras observar.
         """
         new_set = visible - self.cells_ever_explored
         self._recent_new_cells.append(len(new_set))
@@ -181,17 +172,14 @@ class BaseSwarmAgent:
 
         # Prioridad 1 -- conservar budget para volver a base
         dist_to_base = self.grid_distance(self.position, self.base_position)
-        # Estimación del coste real de vuelta: distancia × transitabilidad
-        # media experimentada.  Para drones (trav ≈ 1.0) es casi igual que
-        # antes; para perros en terreno difícil (trav > 1) reserva mucho más.
+        # Coste estimado de vuelta: distancia × transitabilidad media. Para
+        # drones (trav ≈ 1.0) casi no varía; para perros en terreno difícil reserva más.
         avg_trav = self._trav_sum / self._trav_count if self._trav_count > 0 else 1.0
         estimated_return = dist_to_base * max(avg_trav, 1.0) * self.config.return_safety_factor
         if perception.budget_remaining < estimated_return:
             return self._step_toward(self.base_position)
 
-        # Prioridad 1b -- compromiso de frontera activo
-        # Si el agente tiene un objetivo de frontera, seguir caminando
-        # hacia él hasta que expire el TTL o llegue.
+        # Prioridad 1b -- seguir hacia la frontera comprometida hasta TTL o llegada
         if self._frontier_ttl > 0 and self._frontier_target is not None:
             self._frontier_ttl -= 1
             # Cancelar si hemos llegado (o estamos a 1 celda)
@@ -201,9 +189,8 @@ class BaseSwarmAgent:
             else:
                 return self._step_toward(self._frontier_target)
 
-        # Prioridad 1c -- detector de estancamiento
-        # Si en los últimos _stagnation_window ticks no hemos descubierto
-        # suficientes celdas nuevas, forzar búsqueda de frontera.
+        # Prioridad 1c -- detector de estancamiento: si no se descubren
+        # suficientes celdas nuevas en la ventana, forzar búsqueda de frontera.
         if len(self._recent_new_cells) >= self._stagnation_window:
             recent_sum = sum(self._recent_new_cells[-self._stagnation_window:])
             if recent_sum < self._stagnation_threshold:
@@ -238,9 +225,8 @@ class BaseSwarmAgent:
         neighbor_positions = [n.position for n in perception.neighbors]
 
         # Vector de huida del centroide de peers vistos recientemente
-        # (Reynolds 1987 / Boids-separation a escala táctica). Se calcula
-        # UNA VEZ por tick (no por celda) y se reutiliza dentro del loop.
-        # Si dispersal_weight=0 o no hay peers activos, el término se anula.
+        # (Reynolds 1987 / Boids-separation táctica). Se calcula una vez por
+        # tick. Si dispersal_weight=0 o no hay peers activos, el término se anula.
         dispersal_weight = self.config.dispersal_weight
         escape_unit = (0.0, 0.0)
         dispersal_weight_eff = 0.0
@@ -256,32 +242,27 @@ class BaseSwarmAgent:
                 norm = float(np.hypot(dr, dc))
                 if norm > 1e-9:
                     escape_unit = (dr / norm, dc / norm)
-                    # Decaimiento por distancia: cerca del centroide empuja
-                    # fuerte (≈ dispersal_weight), lejos se desvanece. Esto
-                    # convierte la huida brusca en una tendencia suave.
+                    # Decaimiento por distancia: cerca empuja fuerte, lejos se
+                    # desvanece (huida brusca → tendencia suave).
                     falloff = max(self.config.dispersal_falloff, 1e-6)
                     dispersal_weight_eff = dispersal_weight / (1.0 + norm / falloff)
 
         for cell in reachable:
             prob = self.knowledge.probability_map[cell[0], cell[1]]
-            # Estigmergia (Payton 2001 / Parunak 2002): feromona de presencia
-            # ATENÚA el prior. Una zona muy pisada deja de "verse" como
-            # probable → el mapa percibido tiene un agujero en el pozo
-            # saturado, y el gradiente greedy local apunta hacia afuera
-            # de forma natural sin necesidad de términos repulsivos extra.
+            # Estigmergia (Payton 2001 / Parunak 2002): la feromona de presencia
+            # ATENÚA el prior. Una zona muy pisada deja de "verse" como probable,
+            # así el gradiente greedy local apunta hacia afuera sin términos extra.
             attn = self.config.pheromone_attenuation
             if attn > 0:
                 pres = float(self.knowledge.presence_field[cell[0], cell[1]])
                 prob = prob * np.exp(-attn * pres)
             novelty = 1.0 - self.knowledge.exploration_map[cell[0], cell[1]]
 
-            # Penalización por celdas que NOSOTROS ya visitamos: decaimiento
-            # temporal.  Recién visitada → novelty ≈ 0.05 (mínimo), pero
-            # recupera con e^(-Δt/tau) conforme pasa el tiempo.
+            # Penalización por celdas propias ya visitadas con decaimiento
+            # temporal: recién visitada → novelty ≈ 0.05, recupera con e^(-Δt/tau).
             if cell in self.cells_ever_explored:
                 last_visit = self._visit_timestamps.get(cell, 0)
                 dt = max(timestep - last_visit, 0)
-                # Decaimiento: empieza en 0.05, sube hasta 1.0 con el tiempo
                 recovery = 1.0 - np.exp(-dt / self._novelty_decay_tau)
                 novelty *= max(0.05, recovery)
             # Penalización por celdas que OTROS exploraron (suave, caduca)
@@ -290,11 +271,8 @@ class BaseSwarmAgent:
                 if (timestep - ts) < self.knowledge.gossip_expiry_ticks:
                     novelty *= 0.6
 
-            # Repulsión: penalizar celdas cerca de otros agentes.
-            # Curva 1/d^p con p configurable (Reynolds 1987 usa p=2 en
-            # la regla de separation: la fuerza repulsiva debe crecer
-            # más rápido que el inverso lineal para vencer al gradiente
-            # de atracción cerca de los focos de probabilidad).
+            # Repulsión: penalizar celdas cerca de otros agentes. Curva 1/d^p
+            # con p configurable (Reynolds 1987 usa p=2 en la regla de separation).
             repulsion = 0.0
             p = self.config.repulsion_exponent
             for npos in neighbor_positions:
@@ -303,12 +281,9 @@ class BaseSwarmAgent:
                     repulsion += 1.0 / (d ** p)
 
             score = prob * novelty - self.config.repulsion_weight * repulsion
-            # Hard-mask permanente sobre celdas ya observadas.
-            # Imita el set global de celdas observadas del greedy centralizado.
-            # La máscara incluye tanto celdas propias (cells_ever_explored)
-            # como recibidas por gossip dentro del TTL. Con coeficiente 1.0,
-            # la penalización iguala a ``prob_eff`` y deja el score ≈ -rep
-            # para las celdas conocidas, replicando el efecto del hard-mask.
+            # Hard-mask sobre celdas ya observadas (propias + gossip vigente):
+            # con coeficiente 1.0 la penalización iguala a prob_eff, replicando
+            # el set global de celdas observadas del greedy centralizado.
             eep = self.config.ever_explored_penalty
             if eep > 0:
                 in_own = cell in self.cells_ever_explored
@@ -319,25 +294,19 @@ class BaseSwarmAgent:
                         in_gossip = True
                 if in_own or in_gossip:
                     score -= eep * prob
-            # Penalización estigmérgica por feromona de
-            # presencia depositada en el entorno por TODOS los agentes.
-            # Es repulsión regional (no sólo vecinos en comm_range) y se
-            # difumina sola si los depositantes desaparecen.
+            # Penalización estigmérgica por feromona de presencia (repulsión
+            # regional, no solo de vecinos; se difumina sola al desaparecer
+            # los depositantes).
             pw = self.config.presence_weight
             if pw > 0:
                 score -= pw * float(self.knowledge.presence_field[cell[0], cell[1]])
-            # Bonus aditivo por exploración: premia celdas no visitadas
-            # con probabilidad > 0 para equilibrar explotación vs exploración.
-            # Solo aplica a celdas con prob > 0 para no gastar budget en
-            # zonas sin interés.
+            # Bonus aditivo por exploración: premia celdas no visitadas con
+            # prob > 0 (equilibra explotación vs exploración sin gastar budget
+            # en zonas sin interés).
             if cell not in self.cells_ever_explored and prob > 0:
                 score += self.config.exploration_weight
-            # Dispersión por negociación (Boids-separation táctica): premia
-            # celdas alineadas con el vector de huida del centroide de peers
-            # vistos por gossip. cos_align ∈ [-1, 1] => +w en celda hacia
-            # afuera, -w hacia el centroide. Ortogonal a feromonas: maneja
-            # dispersión a escala TACTICA (vecinos directos en gossip), no
-            # estigmérgica (cualquiera que pasó por la celda).
+            # Dispersión táctica (Boids-separation): premia celdas alineadas
+            # con el vector de huida del centroide de peers. cos_align ∈ [-1, 1].
             if dispersal_weight_eff > 0:
                 cdr = cell[0] - self.position[0]
                 cdc = cell[1] - self.position[1]
@@ -348,30 +317,22 @@ class BaseSwarmAgent:
                         + (cdc / cnorm) * escape_unit[1]
                     )
                     score += dispersal_weight_eff * cos_align
-            # Anti-revisit corto (rompe oscilaciones A-B-A-B observadas en
-            # baseline). El decaimiento exponencial de novelty con tau=200
-            # satura al floor 0.05 durante los ~30 primeros ticks tras
-            # visitar una celda, dejando todas las vecinas con la misma
-            # novelty y permitiendo que el ruido fuerce flip-flop entre 2
-            # celdas. Esta penalización LINEAL adicional, fuerte para dt=1
-            # y nula para dt>=window, garantiza que el agente no desande
-            # lo último a no ser que TODAS las vecinas estén también dentro
-            # de la ventana (en cuyo caso elige la menos penalizada).
+            # Anti-revisit corto: penalización lineal (fuerte para dt=1, nula
+            # para dt>=window) que rompe oscilaciones A-B-A-B cuando la novelty
+            # está saturada en su floor y el ruido fuerza el flip-flop.
             arw = self.config.anti_revisit_window
             if arw > 0 and cell in self._visit_timestamps:
                 dt = timestep - self._visit_timestamps[cell]
                 if dt < arw:
                     score -= self.config.anti_revisit_penalty * (arw - dt) / arw
-            # Jitter aleatorio para romper simetría entre agentes con
-            # scoring casi idéntico (evita herding determinista)
+            # Jitter para romper simetría entre agentes con score casi idéntico
             score += self._rng.random() * 1e-8
             if score > best_score:
                 best_score = score
                 best_cell = cell
 
-        # Prioridad 3b -- buscar frontera si estamos en zona ya explorada
-        # por NOSOTROS MISMOS (no por gossip, que causaría convergencia
-        # de todos los drones al mismo punto frontera).
+        # Prioridad 3b -- buscar frontera si toda la zona alcanzable ya fue
+        # explorada por NOSOTROS (no por gossip, que convergiría a todos al mismo punto).
         all_own_visited = all(c in self.cells_ever_explored for c in reachable)
         if all_own_visited:
             frontier = self._find_nearest_frontier(timestep=timestep)
@@ -433,10 +394,9 @@ class BaseSwarmAgent:
     def _step_toward(self, target: tuple[int, int]) -> tuple[int, int]:
         """Celda adyacente que más acerca al objetivo.
 
-        Tiebreaker anti-revisit: cuando hay vecinas equidistantes al target,
-        el comportamiento por defecto de `min` produce oscilación A-B-A-B
-        en frontier/return mode. Si `anti_revisit_window > 0`, la celda
-        visitada hace MÁS tiempo gana (o la nunca-visitada).
+        Tiebreaker anti-revisit (si anti_revisit_window > 0): a igual distancia,
+        gana la celda visitada hace más tiempo (o la nunca-visitada), evitando
+        la oscilación A-B-A-B del `min` por defecto en frontier/return mode.
         """
         neighbors = self._get_reachable_neighbors()
         if not neighbors:
@@ -463,15 +423,12 @@ class BaseSwarmAgent:
         return reachable[idx]
 
     def _levy_flight_target(self) -> tuple[int, int] | None:
-        """Genera un objetivo de salto largo con distribución de Lévy.
+        """Objetivo de salto largo con distribución de Lévy.
 
-        La distancia sigue una distribución de potencia (Pareto):
-        resultado entre 3 y 30 celdas con sesgo hacia distancias cortas.
-        Dirección aleatoria uniforme. Devuelve la celda más cercana
-        válida (dentro del grid y con prob > 0).
+        Distancia ~ Pareto(alpha=1.5), entre 3 y 30 celdas (sesgo a cortas),
+        dirección uniforme. Devuelve la celda destino si tiene prob > 0.
         """
-        # Distancia con distribución de potencia: P(d) ~ d^(-1.5)
-        # Pareto con alpha=1.5, mínimo 3 celdas, cap 30
+        # Distancia con distribución de potencia P(d) ~ d^(-1.5), mín 3, cap 30
         distance = min(30, int(3 * (self._rng.pareto(1.5) + 1)))
         angle = self._rng.uniform(0, 2 * np.pi)
         dr = int(round(distance * np.sin(angle)))
@@ -521,11 +478,7 @@ class BaseSwarmAgent:
         return None
 
     def _detection_quality_at(self, row: int, col: int) -> float:
-        """Calidad de detección base (sin modificar por terreno).
-
-        Las subclases (DroneAgent, RobotDogAgent) sobreescriben este método
-        para devolver la calidad ajustada al tipo de terreno.
-        """
+        """Calidad de detección base (sin terreno). Sobreescrita por subclases."""
         return 1.0
 
     # -- Conversión a LineString (compatibilidad con PathEvaluator) --
@@ -544,11 +497,8 @@ class BaseSwarmAgent:
 
 
 class DroneAgent(BaseSwarmAgent):
-    """Dron aéreo -- ve desde arriba con penalización por dosel en zonas boscosas.
-
-    Movimiento uniforme (vuela sobre todo el terreno sin restricciones).
-    Detección modulada por terrain detection_modifier: en bosque ve peor.
-    """
+    """Dron aéreo: vuela sin restricciones; detección modulada por terreno
+    (peor en bosque por el dosel)."""
 
     agent_type = "drone"
 
@@ -577,12 +527,8 @@ class DroneAgent(BaseSwarmAgent):
 
 
 class RobotDogAgent(BaseSwarmAgent):
-    """Robot terrestre -- detección en suelo con bonificación en bosque.
-
-    No puede cruzar agua (traversability infinita) y se mueve más lento
-    en terrenos difíciles como roca o vegetación densa.
-    Detecta mejor en bosque que el dron (sensores terrestres).
-    """
+    """Robot terrestre: no cruza agua y se mueve más lento en terreno difícil;
+    detecta mejor que el dron en bosque (sensores terrestres)."""
 
     agent_type = "robot_dog"
 

@@ -27,31 +27,27 @@ global skills: [network] {
     file heatmap_file <- csv_file("../includes/heatmap.csv");
 
     // --- Fields para overlay ---
-    // prob_matrix conserva la resolución completa (p.ej. 1286x1286): de ella
-    // se derivan grid_cols/grid_rows, que fijan el tamaño del mundo y el mapeo
-    // de coordenadas de agentes y víctimas.
+    // prob_matrix conserva la resolución completa: de ella se derivan
+    // grid_cols/grid_rows (tamaño del mundo y mapeo de coordenadas).
     matrix prob_matrix <- matrix(heatmap_file);
     int grid_cols <- prob_matrix.columns;
     int grid_rows <- prob_matrix.rows;
-    // El heatmap se renderiza a resolución reducida para abaratar
-    // su único render (refresh:false). prob_display_matrix se rellena en init
-    // muestreando prob_matrix. prob_ds: ↑ más óptimo, ↓2 ≈ idéntico al original.
+    // Heatmap renderizado a resolución reducida (prob_display_matrix, rellenada
+    // en init muestreando prob_matrix) para abaratar su único render. prob_ds: ↑ más óptimo.
     int prob_ds <- 2;
     int disp_cols <- max(1, int(grid_cols / prob_ds));
     int disp_rows <- max(1, int(grid_rows / prob_ds));
     matrix prob_display_matrix <- 0.0 as_matrix {disp_cols, disp_rows};
     field probability_field <- field(prob_display_matrix);
-    // El overlay de exploración se renderiza reducido
-    // explore_ds: ↑ más fluidez, ↓2 overlay más fino.
+    // Overlay de exploración, también reducido. explore_ds: ↑ más fluidez, ↓2 más fino.
     int explore_ds <- 4;
     int explore_cols <- max(1, int(grid_cols / explore_ds));
     int explore_rows <- max(1, int(grid_rows / explore_ds));
     matrix exploration_matrix <- 0.0 as_matrix {explore_cols, explore_rows};
     field exploration_field <- field(exploration_matrix);
 
-    // Redefinir el mundo al tamaño del heatmap (cols × rows). Hacerlo
-    // como atributo (no en init) evita el warning "Dynamically changing
-    // the shape of the world can lead to unexpected results".
+    // Redefinir el mundo al tamaño del heatmap. Como atributo (no en init)
+    // para evitar el warning de cambio dinámico de shape del mundo.
     geometry shape <- rectangle(grid_cols, grid_rows) translated_by {grid_cols / 2.0, grid_rows / 2.0};
 
     // --- Enlaces de comunicación entre agentes (refrescados cada tick) ---
@@ -65,20 +61,17 @@ global skills: [network] {
     bool init_done <- false;
     bool connected_to_python <- false;
     string last_status <- "Pulsa Play para conectar a Python...";
-    // Buffer TCP: se acumula el stream y solo se procesan comandos completos
-    // (terminados en '~'); el fragmento final sin terminador se guarda para
-    // el siguiente ciclo. Evita procesar a medias una línea partida por TCP.
+    // Buffer TCP: solo se procesan comandos completos (terminados en '~');
+    // el fragmento final sin terminador se guarda para el siguiente ciclo.
     string rx_buffer <- "";
-    // Control de flujo: comandos procesados y último valor confirmado a Python.
-    // GAMA envía "ACK|commands_processed" para que Python no mande más rápido
-    // de lo que GAMA puede consumir (si no, su cola de red descarta mensajes).
+    // Control de flujo: GAMA envía "ACK|commands_processed" para que Python
+    // no envíe más rápido de lo que GAMA consume (si no, su cola de red descarta).
     int commands_processed <- 0;
     int last_acked_count <- -1;
 
     init {
         // Rellenar el heatmap de render muestreando prob_matrix (1 de cada
-        // prob_ds celdas). Se hace una sola vez aquí, al cargar el modelo y
-        // antes de Play, así que no interfiere con la ráfaga de red del init.
+        // prob_ds celdas). Una sola vez al cargar el modelo, antes de Play.
         loop ix from: 0 to: disp_cols - 1 {
             loop iy from: 0 to: disp_rows - 1 {
                 prob_display_matrix[{ix, iy}] <- float(prob_matrix[{ix * prob_ds, iy * prob_ds}]);
@@ -86,8 +79,7 @@ global skills: [network] {
         }
         probability_field <- field(prob_display_matrix);
 
-        // La conexión TCP se hace en el primer cycle (reflex connect_to_python),
-        // no aquí: actúa como handshake, Python no envía nada hasta pulsar Play.
+        // La conexión TCP se hace en el primer cycle (reflex connect_to_python).
         write "** SAR Network — Listo. Pulsa Play para conectar a " + python_host + ":" + string(python_port);
     }
 
@@ -103,9 +95,8 @@ global skills: [network] {
 
     // --- Reflex: leer y procesar mensajes TCP cada ciclo ---
     reflex fetch_data when: !simulation_ended {
-        // 1) Drenar el mailbox al buffer (un mensaje puede traer varios
-        //    comandos juntos o solo un fragmento de uno). Guardamos el
-        //    remitente para devolverle el ACK de control de flujo.
+        // 1) Drenar el mailbox al buffer (un mensaje puede traer varios comandos
+        //    o un fragmento). Guardamos el remitente para devolverle el ACK.
         message last_msg <- nil;
         loop while: has_more_message() {
             message msg <- fetch_message();
@@ -113,8 +104,8 @@ global skills: [network] {
             last_msg <- msg;
         }
 
-        // 2) Procesar solo comandos completos (terminados en '~'). El último
-        //    trozo, si está a medias, se conserva para el próximo ciclo.
+        // 2) Procesar solo comandos completos (terminados en '~'); el trozo
+        //    incompleto final se conserva para el próximo ciclo.
         if (rx_buffer != "" and (rx_buffer contains "~")) {
             bool ends_complete <- copy_between(rx_buffer, length(rx_buffer) - 1, length(rx_buffer)) = "~";
             list<string> tokens <- rx_buffer split_with "~";
@@ -136,8 +127,7 @@ global skills: [network] {
         }
 
         // 3) Control de flujo: confirmar a Python cuántos comandos llevamos
-        //    procesados. Así Python no envía más rápido de lo que GAMA puede
-        //    consumir y su cola de red no se satura (evita perder mensajes).
+        //    procesados, para que no se adelante y sature su cola de red.
         if (last_msg != nil and commands_processed != last_acked_count) {
             do send to: last_msg.sender contents: ("ACK|" + string(commands_processed) + "~");
             last_acked_count <- commands_processed;
@@ -179,8 +169,7 @@ global skills: [network] {
         else if (cmd = "VICTIM" and length(parts) >= 4) {
             // Idempotente por índice: Python reenvía las víctimas para rellenar
             // las que GAMA descartó en la ráfaga de init; no se duplican.
-            int vidx <- int(parts[1]);
-            if (empty(victim where (each.v_idx = vidx))) {
+            int vidx <- int(parts[1]);            if (empty(victim where (each.v_idx = vidx))) {
                 create victim {
                     v_idx <- vidx;
                     location <- {float(parts[2]), float(parts[3])};
@@ -211,8 +200,7 @@ global skills: [network] {
                         do move_to(ax, ay, abudget, aactive);
                     }
                 } else {
-                    // Red de seguridad: si el DRONE de init se perdió, crear el
-                    // agente aquí para que aparezca y se mueva.
+                    // Red de seguridad: si el DRONE de init se perdió, crearlo aquí.
                     create drone {
                         agent_idx <- aidx;
                         location <- {ax, ay};
@@ -230,8 +218,7 @@ global skills: [network] {
                         do move_to(ax, ay, abudget, aactive);
                     }
                 } else {
-                    // Red de seguridad: igual que con los drones, si el DOG de
-                    // init se perdió se crea aquí.
+                    // Red de seguridad: si el DOG de init se perdió, crearlo aquí.
                     create robot_dog {
                         agent_idx <- aidx;
                         location <- {ax, ay};
@@ -308,8 +295,7 @@ species drone {
 
     aspect default {
         if (is_active) {
-            // Drone: triángulo cyan (los dogs son cuadrados cyan; la forma
-            // basta para diferenciarlos sin necesidad de color distinto).
+            // Drone: triángulo cyan (los dogs son cuadrados; la forma los distingue).
             draw triangle(7) color: #cyan border: #white;
         } else {
             // Drone inactivo (presupuesto agotado): triángulo gris visible
@@ -382,8 +368,8 @@ experiment sar_gui_network type: gui {
 
     output synchronized: false {
         display main type: opengl background: #black {
-            // Heatmap de probabilidad: estático y reducido (ver prob_ds). Se
-            // dibuja una sola vez ('refresh: false'), no se re-renderiza/frame.
+            // Heatmap de probabilidad: estático y reducido (prob_ds). Se dibuja
+            // una sola vez ('refresh: false'), no se re-renderiza por frame.
             mesh probability_field
                 color: palette([#black, #blue, #yellow, #orange, #red])
                 transparency: 0.3
@@ -391,8 +377,7 @@ experiment sar_gui_network type: gui {
                 refresh: false
                 scale: 0;
 
-            // Overlay: zonas exploradas (verde). Este SÍ cambia cada tick,
-            // así que se refresca normalmente.
+            // Overlay de zonas exploradas (verde): cambia cada tick, se refresca.
             mesh exploration_field
                 color: palette([rgb(0,0,0,0), rgb(0, 255, 0, 150)])
                 transparency: 0.4

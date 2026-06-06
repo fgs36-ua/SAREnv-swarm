@@ -74,13 +74,10 @@ class GamaNetworkServer:
         self._gama_connected = threading.Event()
         self._accept_thread: threading.Thread | None = None
         # --- Control de flujo (backpressure) con GAMA ---
-        # GAMA procesa los mensajes al ritmo de su render, más lento que la
-        # velocidad a la que Python los genera. Sin control de flujo su cola de
-        # red se satura y DESCARTA mensajes (víctimas/FOUND perdidos). GAMA
-        # confirma con "ACK|<n>~" cuántos comandos ha procesado; Python no se
-        # adelanta más de flow_window comandos sin confirmar. Si GAMA no envía
-        # ACKs (modelo antiguo), tras ack_timeout se desactiva y se sigue en
-        # modo best-effort (comportamiento previo), sin bloquear la simulación.
+        # GAMA consume al ritmo de su render, más lento que Python genera. Sin
+        # control de flujo su cola de red se satura y DESCARTA mensajes. GAMA
+        # confirma con "ACK|<n>~"; Python no se adelanta más de flow_window sin
+        # confirmar. Si GAMA no envía ACKs, tras ack_timeout se pasa a best-effort.
         self.flow_control = True
         self.flow_window = 50
         self.ack_timeout = 10.0
@@ -128,21 +125,10 @@ class GamaNetworkServer:
         return connected
 
     def wait_for_ready(self, timeout: float = 600.0) -> bool:
-        """Bloquea hasta recibir la señal ``READY`` desde GAMA.
+        """Bloquea hasta recibir ``READY`` desde GAMA (enviado al pulsar Play).
 
-        GAMA envía ``READY`` cuando el usuario pulsa Play en la GUI.
-        Esto permite que Python no empiece a publicar datos hasta que el
-        usuario haya iniciado el experimento.
-
-        Parameters
-        ----------
-        timeout : float
-            Tiempo máximo de espera en segundos.
-
-        Returns
-        -------
-        bool
-            True si se recibió ``READY``, False si timeout o desconexión.
+        Evita que Python publique datos antes de que el usuario inicie el
+        experimento. Devuelve True si llegó READY, False si timeout/desconexión.
         """
         if not self._client_socket:
             logger.error("wait_for_ready: GAMA no conectado.")
@@ -151,8 +137,7 @@ class GamaNetworkServer:
         logger.info("Esperando señal READY de GAMA (pulsa Play en la GUI)...")
         deadline = time.monotonic() + timeout
         buf = b""
-        # Usamos el timeout corto del socket (1 s) para hacer polling
-        # respetando el deadline global.
+        # Polling con el timeout corto del socket (1 s) respetando el deadline.
         while time.monotonic() < deadline:
             try:
                 chunk = self._client_socket.recv(4096)
@@ -263,9 +248,8 @@ class GamaNetworkServer:
                 self._send_line(f"VICTIM|{i}|{x:.2f}|{y:.2f}")
                 _flush_chunk()
 
-        # Dos pasadas: GAMA descarta mensajes durante la ráfaga de init (está
-        # con el primer render pesado). La 2ª pasada, ya "caliente", rellena
-        # las víctimas perdidas en la 1ª. Ambas antes de INIT_END.
+        # Dos pasadas: GAMA descarta mensajes durante la ráfaga de init (primer
+        # render pesado); la 2ª, ya "caliente", rellena las perdidas. Antes de INIT_END.
         _send_victim_block()
         time.sleep(0.6)
         _send_victim_block()
@@ -376,12 +360,11 @@ class GamaNetworkServer:
     # ------------------------------------------------------------------
 
     def _send_line(self, line: str) -> None:
-        """Envía una línea de texto con delimitador ``~`` + newline.
+        """Envía una línea con delimitador ``~`` + newline.
 
-        GAMA raw TCP mode strips ``\n``.  When TCP coalesces multiple
-        sends into one packet, GAMA delivers them as a single mailbox
-        message with the ``\n`` removed.  The ``~`` sentinel lets GAMA
-        split the concatenated blob back into individual commands.
+        GAMA raw TCP descarta ``\n``. Cuando TCP coalesce varios envíos en un
+        paquete, GAMA los entrega como un solo mensaje; el centinela ``~`` permite
+        volver a separarlos en comandos individuales.
         """
         if not self._client_socket:
             raise RuntimeError("GAMA no conectado.")
@@ -391,7 +374,6 @@ class GamaNetworkServer:
                 self._client_socket.sendall(data.encode("utf-8"))
             except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError, OSError) as e:
                 # GAMA cerró la conexión (Stop, ventana cerrada, crash...).
-                # Marcamos el cliente como desconectado y dejamos de intentarlo.
                 logger.warning("GAMA desconectado durante envío: %s", e)
                 try:
                     self._client_socket.close()
@@ -400,8 +382,7 @@ class GamaNetworkServer:
                 self._client_socket = None
                 self._gama_connected.clear()
                 raise GamaDisconnected(str(e)) from e
-        # Envío correcto: contabilizar para el control de flujo y, si vamos muy
-        # por delante de GAMA, esperar a que confirme (ACK) antes de continuar.
+        # Envío correcto: contabilizar para el control de flujo y aplicar backpressure.
         self._commands_sent += 1
         self._throttle()
 
