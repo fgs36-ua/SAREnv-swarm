@@ -1,0 +1,55 @@
+cff-version: 1.2.0
+message: "If you use SAREnv or the multi-agent swarm extension in your research, please cite:"
+type: software
+title: "SAREnv"
+repository-code: "https://github.com/namurproject/SAREnv"
+license: MIT
+version: "0.2.0"
+
+authors:
+  - family-names: "Grøntved"
+    given-names: "Kasper Andreas Rømer"
+    email: kaspergrontved@proton.me
+  - family-names: "Godoy Silvestre"
+    given-names: "Fabián"
+    email: fgs36@alu.ua.es
+
+preferred-citation:
+  type: article
+  title: "SAREnv: An Open-Source Dataset and Benchmark Tool for Informed Wilderness Search and Rescue Using UAVs"
+  authors:
+    - family-names: "Grøntved"
+      given-names: "Kasper Andreas Rømer"
+    - family-names: "Jarabo-Peñas"
+      given-names: "Alejandro"
+    - family-names: "Reid"
+      given-names: "Sid"
+    - family-names: "Rolland"
+      given-names: "Edouard George Alain"
+    - family-names: "Watson"
+      given-names: "Matthew"
+    - family-names: "Richards"
+      given-names: "Arthur"
+    - family-names: "Bullock"
+      given-names: "Steve"
+    - family-names: "Christensen"
+      given-names: "Anders Lyhne"
+  journal: "Drones"
+  year: 2025
+  volume: 9
+  issue: 9
+  article-number: "628"
+  doi: "10.3390/drones9090628"
+  url: "https://doi.org/10.3390/drones9090628"
+
+references:
+  # TODO: add TFG citation here once defended
+  # - type: thesis
+  #   title: "Enjambre heterogéneo bioinspirado para búsqueda y rescate"
+  #   authors:
+  #     - family-names: "Godoy Silvestre"
+  #       given-names: "Fabián"
+  #   institution:
+  #     name: "Universidad de Alicante"
+  #   year: 2026
+  #   thesis-type: "Bachelor Thesis"
