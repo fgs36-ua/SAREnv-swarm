@@ -1,5 +1,5 @@
 """
-Unit tests for the swarm simulator (Phase 1).
+Unit tests for the swarm simulator core.
 
 Tests validate:
 1. Config creation and defaults

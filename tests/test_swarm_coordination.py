@@ -1,5 +1,5 @@
 """
-Tests de Fase 3: Comportamiento descentralizado del enjambre.
+Tests for decentralized swarm coordination behaviour.
 
 Valida (tarea 3.8):
 1. Espectro max_hops: con max_hops alto la cobertura supera a max_hops=0

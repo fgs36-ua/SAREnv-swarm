@@ -1,7 +1,6 @@
 """
 Tests para los experimentos E8 (hard-mask de celdas observadas) y E9
-(estadística de probabilidad acumulada por agente), introducidos por
-[docs/20_plan_accion_tutor.md](../docs/20_plan_accion_tutor.md).
+(estadística de probabilidad acumulada por agente).
 """
 from __future__ import annotations
 

@@ -1,5 +1,5 @@
 """
-Tests de Fase 2: Agentes heterogéneos con terreno.
+Tests for heterogeneous agents with terrain integration.
 
 Valida:
 1. terrain.py: rasterización de features y generación de mapas de modificadores
