@@ -402,7 +402,7 @@ evaluator = sarenv.ComparativeEvaluator()
 evaluator.path_generators['custom'] = custom_search_algorithm
 ```
 
-## � Experimental Results
+## 📃 Experimental Results
 
 The `results/published/` directory contains precomputed CSV data from the experimental evaluation:
 
@@ -418,7 +418,7 @@ The `results/published/` directory contains precomputed CSV data from the experi
 
 See `results/published/` for the full set of 13 CSV files.
 
-## �📃 Publications
+## 📃 Publications
 
 * Grøntved, K. A. R., Jarabo-Peñas, A., Reid, S., Rolland, E. G. A., Watson, M., Richards, A., Bullock, S., & Christensen, A. L. (2025). SAREnv: An Open-Source Dataset and Benchmark Tool for Informed Wilderness Search and Rescue Using UAVs. Drones, 9(9), 628. https://doi.org/10.3390/drones9090628
 
