@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-17_swarm_coverage_video.py
+04_coverage_video.py
 
 Genera un vídeo MP4 del enjambre cubriendo Maigmó tick a tick:
   - Fondo: mapa de probabilidad (YlOrRd)
@@ -9,9 +9,9 @@ Genera un vídeo MP4 del enjambre cubriendo Maigmó tick a tick:
   - Barra de progreso + métricas en el título
 
 Usage:
-    python examples/17_swarm_coverage_video.py
-    python examples/17_swarm_coverage_video.py --num_drones 5 --num_dogs 10
-    python examples/17_swarm_coverage_video.py --fps 30 --frame_skip 15
+    python examples/02_swarm/04_coverage_video.py
+    python examples/02_swarm/04_coverage_video.py --num_drones 5 --num_dogs 10
+    python examples/02_swarm/04_coverage_video.py --fps 30 --frame_skip 15
 """
 from __future__ import annotations
 

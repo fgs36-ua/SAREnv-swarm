@@ -1,4 +1,4 @@
-# examples/08_compare_swarm_vs_baselines.py
+# examples/02_swarm/02_compare_vs_baselines.py
 """
 Compare Swarm vs Baseline Algorithms
 
@@ -7,8 +7,8 @@ Runs the swarm simulator alongside the existing path generators
 then summarises metrics side-by-side.
 
 Usage:
-    python examples/08_compare_swarm_vs_baselines.py
-    python examples/08_compare_swarm_vs_baselines.py --dataset sarenv_dataset/1 --budget 200000 --num_drones 5
+    python examples/02_swarm/02_compare_vs_baselines.py
+    python examples/02_swarm/02_compare_vs_baselines.py --dataset sarenv_dataset/1 --budget 200000 --num_drones 5
 """
 from __future__ import annotations
 

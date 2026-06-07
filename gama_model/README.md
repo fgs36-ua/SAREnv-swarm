@@ -26,7 +26,7 @@ gama_model/
 ### Paso 1: Ejecutar el servidor Python
 
 ```bash
-python examples/14_gama_gui_visualization.py --scenario 1 --num-drones 5 --num-dogs 2
+python examples/02_swarm/03_gama_visualization.py --scenario 1 --num-drones 5 --num-dogs 2
 ```
 
 El script carga el escenario, exporta el heatmap, e inicia un servidor TCP

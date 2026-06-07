@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-18_swarm_comparative_video.py
+05_comparative_video.py
 
 Comparative coverage video: Swarm (5D+10P) vs Pizza vs Greedy.
 
@@ -16,8 +16,8 @@ Layout
 
 Usage
 -----
-    python examples/18_swarm_comparative_video.py
-    python examples/18_swarm_comparative_video.py --num_drones 5 --num_dogs 10 \
+    python examples/02_swarm/05_comparative_video.py
+    python examples/02_swarm/05_comparative_video.py --num_drones 5 --num_dogs 10 \
         --budget 100000 --interval 2500 --fps 24 --fpi 6
 """
 

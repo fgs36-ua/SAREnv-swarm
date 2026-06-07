@@ -1,4 +1,4 @@
-# examples/12_evaluate_60_scenarios.py
+# examples/03_benchmarks/01_evaluate_60_scenarios.py
 """
 Evaluación del enjambre sobre los 60 escenarios del benchmark SAREnv.
 
@@ -16,10 +16,10 @@ Para cada escenario se ejecutan varias semillas y se recogen métricas
 de cobertura, víctimas encontradas, overlap y eficiencia.
 
 Uso:
-    python examples/12_evaluate_60_scenarios.py                    # Todos (60)
-    python examples/12_evaluate_60_scenarios.py --scenarios 1 5    # Solo 1-5
-    python examples/12_evaluate_60_scenarios.py --seeds 3          # 3 semillas
-    python examples/12_evaluate_60_scenarios.py --budget-factor 1.5  # +50% budget
+    python examples/03_benchmarks/01_evaluate_60_scenarios.py                    # Todos (60)
+    python examples/03_benchmarks/01_evaluate_60_scenarios.py --scenarios 1 5    # Solo 1-5
+    python examples/03_benchmarks/01_evaluate_60_scenarios.py --seeds 3          # 3 semillas
+    python examples/03_benchmarks/01_evaluate_60_scenarios.py --budget-factor 1.5  # +50% budget
 """
 from __future__ import annotations
 

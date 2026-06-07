@@ -1,4 +1,4 @@
-# examples/07_run_swarm_simulation.py
+# examples/02_swarm/01_run_swarm_simulation.py
 """
 Basic Swarm Simulator Example
 
@@ -6,8 +6,8 @@ Loads a dataset, runs the tick-based swarm simulation, and prints
 coverage metrics.  Optionally plots per-agent paths on the heatmap.
 
 Usage:
-    python examples/07_run_swarm_simulation.py
-    python examples/07_run_swarm_simulation.py --dataset sarenv_dataset/1 --num_drones 5 --budget 150000
+    python examples/02_swarm/01_run_swarm_simulation.py
+    python examples/02_swarm/01_run_swarm_simulation.py --dataset sarenv_dataset/1 --num_drones 5 --budget 150000
 """
 from __future__ import annotations
 

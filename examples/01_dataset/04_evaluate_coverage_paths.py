@@ -1,4 +1,4 @@
-# examples/04_evaluate_coverage_paths.py
+# examples/01_dataset/04_evaluate_coverage_paths.py
 from pathlib import Path
 
 import geopandas as gpd

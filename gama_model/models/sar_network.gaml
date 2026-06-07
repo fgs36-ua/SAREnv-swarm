@@ -6,7 +6,7 @@
  * Python controla toda la lógica; GAMA solo renderiza y anima.
  *
  * Uso:
- *   1. python examples/14_gama_gui_visualization.py --scenario 1
+ *   1. python examples/02_swarm/03_gama_visualization.py --scenario 1
  *   2. Doble-click en "Experiment sar_gui_network" en GAMA
  *   3. Pulsa (Play) en la barra de herramientas de GAMA
  *

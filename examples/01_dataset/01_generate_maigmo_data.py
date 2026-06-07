@@ -1,4 +1,4 @@
-# examples/01_generate_maigmo_data.py
+# examples/01_dataset/01_generate_maigmo_data.py
 import os
 import numpy as np
 import geopandas as gpd

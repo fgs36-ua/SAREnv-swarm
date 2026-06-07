@@ -1,4 +1,4 @@
-# examples/05_evaluate_all_datasets.py
+# examples/01_dataset/05_evaluate_all_datasets.py
 import numpy as np
 import pandas as pd
 from pathlib import Path

@@ -1,4 +1,4 @@
-# examples/06_generate_comparative_coverage_video.py
+# examples/01_dataset/06_generate_comparative_coverage_video.py
 """
 Simplified Comparative Coverage Video Generator
 

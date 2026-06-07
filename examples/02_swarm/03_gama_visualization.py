@@ -1,4 +1,4 @@
-# examples/14_gama_gui_visualization.py
+# examples/02_swarm/03_gama_visualization.py
 """
 Servidor para visualización 3D en tiempo real con GAMA Platform GUI.
 
@@ -15,7 +15,7 @@ Prerrequisitos:
 
 Flujo de uso:
     1. Ejecutar este script:
-       python examples/14_gama_gui_visualization.py --scenario 1
+       python examples/02_swarm/03_gama_visualization.py --scenario 1
 
     2. Abrir GAMA Platform (GUI)
 
@@ -28,10 +28,10 @@ Flujo de uso:
        → Se ve la visualización 3D en tiempo real
 
     # Con delay para visualización más lenta
-    python examples/14_gama_gui_visualization.py --scenario 1 --tick-delay-ms 100
+    python examples/02_swarm/03_gama_visualization.py --scenario 1 --tick-delay-ms 100
 
     # Con 3 drones y 2 perros
-    python examples/14_gama_gui_visualization.py --scenario 1 --num-drones 3 --num-dogs 2
+    python examples/02_swarm/03_gama_visualization.py --scenario 1 --num-drones 3 --num-dogs 2
 """
 from __future__ import annotations
 
@@ -46,7 +46,7 @@ import geopandas as gpd
 import numpy as np
 
 # Ajustar path para imports desde examples/
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from sarenv.core.loading import SARDatasetItem
 from sarenv.core.lost_person import LostPersonLocationGenerator
