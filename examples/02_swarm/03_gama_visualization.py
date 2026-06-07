@@ -138,17 +138,35 @@ def generate_victims(
     env: SwarmEnvironment,
     seed: int = 42,
 ) -> set[tuple[int, int]]:
-    """Genera víctimas y devuelve sus coordenadas grid."""
+    """Genera víctimas y devuelve sus coordenadas grid.
+
+    Regenera en lotes hasta obtener exactamente num_victims celdas únicas,
+    evitando que colisiones de grid (dos puntos en la misma celda) reduzcan
+    el recuento final.
+    """
     np.random.seed(seed)
     try:
         victim_gen = LostPersonLocationGenerator(item)
-        victim_points = victim_gen.generate_locations(
-            num_victims, percent_random_samples=0,
-        )
-        victim_cells = set()
-        for pt in victim_points:
-            r, c = env.world_to_grid(pt.x, pt.y)
-            victim_cells.add((r, c))
+        victim_cells: set[tuple[int, int]] = set()
+        max_iterations = 10
+        iteration = 0
+        while len(victim_cells) < num_victims and iteration < max_iterations:
+            remaining = num_victims - len(victim_cells)
+            victim_points = victim_gen.generate_locations(
+                remaining, percent_random_samples=0,
+            )
+            for pt in victim_points:
+                r, c = env.world_to_grid(pt.x, pt.y)
+                victim_cells.add((r, c))
+                if len(victim_cells) >= num_victims:
+                    break
+            iteration += 1
+        if len(victim_cells) < num_victims:
+            log.warning(
+                "Solo se generaron %d/%d celdas únicas tras %d iteraciones "
+                "(colisiones de grid inevitables).",
+                len(victim_cells), num_victims, iteration,
+            )
         return victim_cells
     except Exception as e:
         log.warning("Error generando víctimas: %s", e)
