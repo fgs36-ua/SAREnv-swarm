@@ -14,7 +14,8 @@ from pathlib import Path
 import geopandas as gpd
 import numpy as np
 import pytest
-from shapely.geometry import Polygon, LineString, box
+from shapely.geometry import MultiLineString, MultiPolygon, Polygon, LineString, box
+from shapely.geometry.collection import GeometryCollection
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", message=".*shapely.*")
@@ -124,6 +125,38 @@ class TestTerrainRasterization:
         assert grid[5, 25] == "water"
         # Celda (40, 25) = parte alta, fuera del agua
         assert grid[40, 25] is None
+
+    def test_multipolygon_rasterizes_same_as_individual_polygons(self):
+        """MultiPolygon equivale a rasterizar sus partes por separado."""
+        poly1 = box(0, 0, 1000, 5000)    # franja izquierda
+        poly2 = box(4000, 0, 5000, 5000) # franja derecha
+        # Dos GDFs individuales vs un MultiPolygon
+        gdf_individual = _make_features_gdf([(poly1, "woodland"), (poly2, "woodland")])
+        gdf_multi = _make_features_gdf([(MultiPolygon([poly1, poly2]), "woodland")])
+        grid_individual = _rasterize_features(gdf_individual, 50, 50, 0, 0, 100, 100)
+        grid_multi = _rasterize_features(gdf_multi, 50, 50, 0, 0, 100, 100)
+        np.testing.assert_array_equal(grid_individual, grid_multi)
+
+    def test_multilinestring_rasterizes_all_segments(self):
+        """MultiLineString rasteriza todos sus segmentos."""
+        line1 = LineString([(500, 0), (500, 5000)])   # línea vertical izquierda
+        line2 = LineString([(4500, 0), (4500, 5000)]) # línea vertical derecha
+        gdf = _make_features_gdf([(MultiLineString([line1, line2]), "linear")])
+        grid = _rasterize_features(gdf, 50, 50, 0, 0, 100, 100)
+        # Ambas líneas deben estar marcadas
+        assert (grid[:, 5] == "linear").any(), "Segmento izquierdo no rasterizado"
+        assert (grid[:, 45] == "linear").any(), "Segmento derecho no rasterizado"
+
+    def test_geometry_collection_nested_multipolygon(self):
+        """GeometryCollection con MultiPolygon anidado se descompone recursivamente."""
+        poly1 = box(0, 0, 1000, 5000)
+        poly2 = box(4000, 0, 5000, 5000)
+        nested = GeometryCollection([MultiPolygon([poly1, poly2])])
+        gdf = _make_features_gdf([(nested, "woodland")])
+        grid = _rasterize_features(gdf, 50, 50, 0, 0, 100, 100)
+        # Las celdas dentro de ambos polígonos deben estar marcadas
+        assert grid[25, 5] == "woodland", "Polígono izquierdo dentro de GeometryCollection no rasterizado"
+        assert grid[25, 45] == "woodland", "Polígono derecho dentro de GeometryCollection no rasterizado"
 
 
 class TestDetectionModifierMap:
