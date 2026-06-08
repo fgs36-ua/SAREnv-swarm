@@ -2,9 +2,12 @@
 
 [![Python](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-1.0-green.svg)](https://github.com/namurproject/sarenv)
+[![Version](https://img.shields.io/badge/version-0.2.0-green.svg)](https://github.com/namurproject/SAREnv)
+[![Tests](https://github.com/fgs36-ua/SAREnv/actions/workflows/tests.yml/badge.svg)](https://github.com/fgs36-ua/SAREnv/actions/workflows/tests.yml)
 
 SAREnv is an open-access dataset and evaluation framework designed to support research in UAV-based search and rescue (SAR) algorithms. This toolkit addresses the critical need for standardized datasets and benchmarks in wilderness SAR operations, enabling systematic evaluation and comparison of algorithmic approaches including coverage path planning, probabilistic search, and information-theoretic exploration.
+
+This repository extends the original framework with a **multi-agent swarm module** (`sarenv.swarm`): a decentralised, bio-inspired coordination system for heterogeneous teams of UAV drones and ground robot dogs, with optional real-time 3D visualisation via [GAMA Platform](https://gama-platform.org/).
 
 If you have issues cloning/downloading the repository with GitHub LFS (Large File Storage), the full repo with large files included can be found here: https://nextcloud.sdu.dk/index.php/s/pap6MJao5iXHWfw
 
@@ -49,6 +52,15 @@ Unmanned Aerial Vehicles (UAVs) play an increasingly vital role in wilderness se
 - **Victim detection rates**: Success probability and timeliness analysis
 - **Multi-drone coordination**: Support for collaborative search strategies
 
+### 🤖 Multi-agent Swarm Extension
+
+- **Heterogeneous teams**: UAV drones + ground robot dogs with distinct mobility profiles
+- **Decentralised coordination**: Virtual pheromone fields and epidemic gossip protocol (no central controller)
+- **Bio-inspired exploration**: Attraction, repulsion, and anti-revisit mechanisms (Parunak 2002, Reynolds 1987)
+- **Terrain-aware agents**: OSM-derived detection modifiers and traversability costs per agent type
+- **GAMA Platform integration**: Optional real-time 3D visualisation over the terrain map
+- **Reproducible benchmarks**: 60-scenario evaluation suite with published CSVs in `results/published/`
+
 ## 🚀 Quick Start
 
 ### Installation
@@ -63,6 +75,9 @@ pip install -r requirements.txt
 
 # Install the package
 pip install -e .
+
+# Optional: GAMA Platform visualisation support
+pip install -e ".[gama]"
 ```
 
 ### Download Pre-generated Dataset
@@ -155,17 +170,47 @@ results = evaluator.run_baseline_evaluations()
 evaluator.plot_results(results)
 ```
 
+### Multi-agent Swarm Quick Start
+
+```python
+from sarenv.core.loading import DatasetLoader
+from sarenv.swarm import SwarmConfig, DroneConfig, SwarmSimulator, SwarmMetrics
+
+# Load a SAR scenario
+loader = DatasetLoader("sarenv_dataset")
+item = loader.load_environment("medium")
+
+# Configure a heterogeneous team: 3 drones + 2 robot dogs
+config = SwarmConfig(
+    num_drones=3,
+    num_dogs=2,
+    budget_per_agent=100_000,
+)
+
+# Run the decentralised simulation
+sim = SwarmSimulator.from_dataset_item(item, config, seed=42)
+sim.run()
+
+# Evaluate
+metrics = SwarmMetrics(sim)
+summary = metrics.coverage_summary()
+print(f"Coverage:    {summary['coverage_ratio']:.1%}")
+print(f"Probability: {summary['probability_coverage_ratio']:.1%}")
+```
+
 ## 📁 Example Scripts
 
-The `examples/` directory contains comprehensive scripts demonstrating different aspects of the SAREnv framework. Here's how to use each one:
+The `examples/` directory is organised into three groups:
 
-### `01_generate_sar_data.py`
+### 📂 `examples/01_dataset/` — Framework basics
+
+#### `01_generate_sar_data.py`
 
 **Purpose**: Generate custom SAR datasets for specific geographic regions  
 **Usage**: Demonstrates how to create datasets from custom polygon areas using real geospatial data
 
 ```bash
-python examples/01_generate_sar_data.py
+python examples/01_dataset/01_generate_sar_data.py
 ```
 
 - Creates datasets for custom geographic polygons
@@ -173,13 +218,13 @@ python examples/01_generate_sar_data.py
 - Generates probability heatmaps for lost person locations
 - Exports multi-scale environments (small to extra-large)
 
-### `02_load_and_visualize.py`
+#### `02_load_and_visualize.py`
 
 **Purpose**: Load existing datasets and create visualizations  
 **Usage**: Shows how to load pre-generated datasets and create publication-quality plots
 
 ```bash
-python examples/02_load_and_visualize.py
+python examples/01_dataset/02_load_and_visualize.py
 ```
 
 - Loads datasets from the `sarenv_dataset/` directory
@@ -187,13 +232,13 @@ python examples/02_load_and_visualize.py
 - Generates feature maps showing terrain, roads, water bodies, and vegetation
 - Supports both basemap overlays and standalone visualizations
 
-### `03_generate_survivors.py`
+#### `03_generate_survivors.py`
 
 **Purpose**: Generate realistic lost person locations  
 **Usage**: Demonstrates statistical modeling of victim locations based on terrain features
 
 ```bash
-python examples/03_generate_survivors.py
+python examples/01_dataset/03_generate_survivors.py
 ```
 
 - Uses research-based behavioral models for lost person distributions
@@ -201,13 +246,13 @@ python examples/03_generate_survivors.py
 - Creates visualizations showing victim locations overlaid on terrain features
 - Supports configurable numbers of victims for different scenario sizes
 
-### `04_evaluate_coverage_paths.py`
+#### `04_evaluate_coverage_paths.py`
 
 **Purpose**: Evaluate and compare path planning algorithms  
 **Usage**: Run comparative analysis of built-in search algorithms on a single dataset
 
 ```bash
-python examples/04_evaluate_coverage_paths.py
+python examples/01_dataset/04_evaluate_coverage_paths.py
 ```
 
 - Compares Spiral, Concentric, Pizza, and Greedy search algorithms
@@ -215,28 +260,27 @@ python examples/04_evaluate_coverage_paths.py
 - Generates comparison plots and performance charts
 - Supports multi-drone scenarios with configurable team sizes
 
-### `05_evaluate_all_datasets.py`
+#### `05_evaluate_all_datasets.py`
 
 **Purpose**: Large-scale evaluation across multiple datasets  
 **Usage**: Systematic evaluation framework for algorithm benchmarking across many scenarios
 
 ```bash
-python examples/05_evaluate_all_datasets.py --budget 300000 --num_drones 5
+python examples/01_dataset/05_evaluate_all_datasets.py --budget 300000 --num_drones 5
 ```
 
-- Evaluates algorithms across multiple geographic regions (datasets 1-60)
-- Provides statistical significance testing across diverse scenarios
+- Evaluates algorithms across multiple geographic regions
 - Generates comprehensive CSV results for further analysis
 - Supports custom algorithm integration for research purposes
 - Command-line arguments for budget and drone configuration
 
-### `06_generate_comparative_coverage_video.py`
+#### `06_generate_comparative_coverage_video.py`
 
 **Purpose**: Create animated videos showing algorithm performance  
 **Usage**: Generate dynamic visualizations comparing multiple algorithms in real-time
 
 ```bash
-python examples/06_generate_comparative_coverage_video.py
+python examples/01_dataset/06_generate_comparative_coverage_video.py
 ```
 
 - Creates MP4 videos showing 4 algorithms side-by-side in 2×2 grid layout
@@ -245,46 +289,72 @@ python examples/06_generate_comparative_coverage_video.py
 - Configurable video quality and frame rates for different use cases
 - Efficient parallel processing for faster video generation
 
-### Running Examples
+> **Note**: Scripts 02–06 require an existing dataset. Either download via Git LFS or run `01_generate_sar_data.py` first.
 
-Each script can be run independently after installing SAREnv:
+### 📂 `examples/02_swarm/` — Multi-agent swarm demos
+
+| Script | Description |
+|---|---|
+| `01_run_swarm_simulation.py` | Basic swarm simulation: configure team, run, print metrics |
+| `02_compare_vs_baselines.py` | Compare swarm coverage against centralised planners |
+| `03_gama_visualization.py` | Live 3D visualisation in GAMA Platform via TCP |
+| `04_coverage_video.py` | Generate coverage video for a swarm run |
+| `05_comparative_video.py` | Side-by-side comparison video: swarm vs Pizza vs Greedy |
 
 ```bash
-# Make sure you're in the project directory
-cd SAREnv
-
-# Run any example script
-python examples/[script_name].py
+python examples/02_swarm/01_run_swarm_simulation.py --num_drones 3 --num_dogs 2
+python examples/02_swarm/03_gama_visualization.py --scenario 1 --num-drones 5 --num-dogs 2
 ```
 
-**Note**: Scripts 02-06 require existing datasets. Either download the pre-generated datasets using Git LFS or run script 01 to generate custom datasets first.
+> **GAMA visualisation** requires [GAMA Platform 2025+](https://gama-platform.org/) installed separately and `pip install -e ".[gama]"`.
+
+### 📂 `examples/03_benchmarks/` — Reproducibility
+
+| Script | Description |
+|---|---|
+| `01_evaluate_60_scenarios.py` | Full 60-scenario benchmark used in the experimental evaluation |
+
+```bash
+python examples/03_benchmarks/01_evaluate_60_scenarios.py --num-drones 5 --budget 500000
+```
+
+> Precomputed results are available in `results/published/`.
 
 ## 📁 Repository Structure
 
 ```text
-sarenv/
+SAREnv/
 ├── sarenv/                     # Main package
-│   ├── analytics/              # Path planning and evaluation
-│   │   ├── paths.py           # Coverage path algorithms
-│   │   ├── metrics.py         # Evaluation metrics
-│   │   └── evaluator.py       # Comparative evaluation framework
-│   ├── core/                   # Core functionality
-│   │   ├── generation.py      # Dataset generation
-│   │   ├── loading.py         # Dataset loading utilities
-│   │   └── lost_person.py     # Lost person modeling
-│   └── utils/                  # Utility functions
-│       ├── geo.py             # Geospatial utilities
-│       ├── plot.py            # Visualization tools
-│       └── lost_person_behavior.py  # Behavioral models
-├── examples/                   # Usage examples
-│   ├── 01_generate_sar_data.py
-│   ├── 02_load_and_visualize.py
-│   ├── 03_generate_survivors.py
-│   ├── 04_evaluate_coverage_paths.py
-│   ├── 05_evaluate_all_datasets.py
-│   └── 06_generate_comparative_coverage_video.py
-├── data/                       # Data processing scripts
-└── sarenv_dataset/            # Generated datasets (created after running)
+│   ├── analytics/              # Path planning and evaluation (original framework)
+│   │   ├── paths.py            # Coverage path algorithms
+│   │   ├── metrics.py          # Evaluation metrics
+│   │   └── evaluator.py        # Comparative evaluation framework
+│   ├── core/                   # Dataset generation and loading
+│   ├── utils/                  # Geospatial and plotting utilities
+│   └── swarm/                  # Multi-agent swarm extension
+│       ├── config.py           # SwarmConfig, DroneConfig, RobotDogConfig
+│       ├── agents.py           # DroneAgent, RobotDogAgent
+│       ├── simulator.py        # Tick-based simulation loop
+│       ├── knowledge.py        # Pheromone maps + gossip
+│       ├── communication.py    # Epidemic gossip protocol
+│       ├── metrics.py          # Coverage metrics + Gini coefficient
+│       ├── terrain.py          # OSM-derived detection/traversability maps
+│       ├── comparative.py      # Swarm vs centralised planners
+│       ├── export.py           # Export to GAMA (CSV/GeoJSON)
+│       └── gama_network_server.py  # TCP server for live GAMA visualisation
+├── gama_model/                 # GAMA Platform model (3D visualisation)
+│   └── models/sar_network.gaml
+├── examples/
+│   ├── 01_dataset/             # Dataset generation and baseline evaluation
+│   ├── 02_swarm/               # Swarm simulation and GAMA visualisation
+│   └── 03_benchmarks/          # 60-scenario reproducibility benchmark
+├── tests/                      # Unit tests (90 passing)
+├── results/
+│   └── published/              # CSVs from the experimental evaluation
+├── pyproject.toml
+├── requirements.txt
+├── CITATION.cff
+└── sarenv_dataset/             # Generated datasets (via Git LFS)
 ```
 
 ## 🔬 Research Applications
@@ -331,6 +401,22 @@ def custom_search_algorithm(center_x, center_y, max_radius, num_drones, **kwargs
 evaluator = sarenv.ComparativeEvaluator()
 evaluator.path_generators['custom'] = custom_search_algorithm
 ```
+
+## 📃 Experimental Results
+
+The `results/published/` directory contains precomputed CSV data from the experimental evaluation:
+
+| File | Description |
+|---|---|
+| `sarenv60_evaluation.csv` | Benchmark across 60 scenarios (180 runs: 3 drone configurations × 60 scenarios) |
+| `exp_60scen_e1.csv` | E1 — Swarm vs centralised planners (Greedy, Pizza, Spiral) |
+| `exp_60scen_e2.csv` | E2 — Heterogeneous team composition (drones vs robot dogs) |
+| `exp_60scen_e3.csv` | E3 — Communication range (`max_hops`) sensitivity |
+| `exp_60scen_e5.csv` | E5 — Resilience to agent failures |
+| `exp5_resilience.csv` | E5 — Maigmó scenario resilience (final model) |
+| `exp10_load_balance_comparative.csv` | E10 — Load balance across heterogeneous agents |
+
+See `results/published/` for the full set of 13 CSV files.
 
 ## 📃 Publications
 

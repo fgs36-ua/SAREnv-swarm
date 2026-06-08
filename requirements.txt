@@ -1,3 +1,7 @@
+numpy
+scipy
+pandas
+tqdm
 geopandas
 matplotlib
 osmnx
@@ -11,6 +15,6 @@ Pillow
 scikit-image
 opencv-python
 plotly
-rasterio 
+rasterio
 elevation
 seaborn

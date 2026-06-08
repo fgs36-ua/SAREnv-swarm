@@ -184,6 +184,28 @@ class PathEvaluator:
             'cumulative_time_discounted_scores': cumulative_discounted_scores_all_paths,
         }
 
+    def _safe_buffer_paths(self, paths: list[LineString]) -> "shapely.Geometry":
+        """Buffer paths de forma segura, dividiendo en chunks para evitar
+        errores de memoria en GEOS con paths muy largos."""
+        CHUNK = 300  # puntos por segmento
+        parts = []
+        for p in paths:
+            coords = list(p.coords)
+            if len(coords) < 2:
+                continue
+            for i in range(0, len(coords) - 1, CHUNK):
+                seg = coords[i : i + CHUNK + 1]
+                if len(seg) >= 2:
+                    parts.append(
+                        LineString(seg).buffer(
+                            self.detection_radius, quad_segs=4
+                        )
+                    )
+        if not parts:
+            from shapely.geometry import Polygon
+            return Polygon()
+        return unary_union(parts)
+
     def _calculate_victims_found_score(self, paths: list[LineString]) -> dict:
         """
         Calculates victim detection percentage and timeliness.
@@ -194,12 +216,7 @@ class PathEvaluator:
         if not valid_paths or self.victims.empty:
             return {'percentage_found': 0, 'found_victim_indices': []}
 
-        # Memory-efficient approach: use unary_union to avoid intermediate geometry accumulation
-        buffered_paths = [p.buffer(self.detection_radius) for p in valid_paths]
-        coverage_area = unary_union(buffered_paths)
-
-        # Clear the buffered_paths list to free memory
-        del buffered_paths
+        coverage_area = self._safe_buffer_paths(valid_paths)
 
         found_victims = self.victims[self.victims.within(coverage_area)]
 
@@ -226,12 +243,7 @@ class PathEvaluator:
         if not valid_paths:
             return 0.0
 
-        # Memory-efficient approach: use unary_union to avoid intermediate geometry accumulation
-        buffered_paths = [path.buffer(self.detection_radius) for path in valid_paths]
-        combined_coverage = unary_union(buffered_paths)
-
-        # Clear the buffered_paths list to free memory
-        del buffered_paths
+        combined_coverage = self._safe_buffer_paths(valid_paths)
 
         return combined_coverage.area / 1_000_000  # Convert from m² to km²
 
