@@ -15,7 +15,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import numpy as np
-from shapely.geometry import LineString, Polygon
+from shapely.geometry import LineString, MultiLineString, MultiPolygon, Polygon
+from shapely.geometry.collection import GeometryCollection
 
 if TYPE_CHECKING:
     import geopandas as gpd
@@ -93,14 +94,13 @@ def _rasterize_features(
     Devuelve un array de objetos (str | None) de shape (rows, cols).
     None = sin feature → terreno abierto por defecto.
 
-    Para cada celda, si hay varias features superpuestas, gana la que
-    tiene mayor área intersectada. Esto es una simplificación, pero
-    funciona bien para el tamaño de celda típico (30m).
+    Cuando varias features se superponen en la misma celda, prevalece la
+    última en orden de iteración (orden de groupby sobre feature_type).
     """
     from skimage.draw import polygon as ski_polygon
 
     # Grid de tipo de terreno (None = sin datos = campo abierto)
-    terrain_grid: np.ndarray = np.empty((rows, cols), dtype=object)
+    terrain_grid: np.ndarray = np.full((rows, cols), None, dtype=object)
 
     if features is None or features.empty:
         return terrain_grid
@@ -114,29 +114,39 @@ def _rasterize_features(
             if geom is None or geom.is_empty:
                 continue
 
-            if isinstance(geom, Polygon):
-                # Rasterizar polígono entero
-                coords = np.array(geom.exterior.coords)
-                img_c = ((coords[:, 0] - minx) / dx).astype(int)
-                img_r = ((coords[:, 1] - miny) / dy).astype(int)
-                rr, cc = ski_polygon(img_r, img_c, shape=(rows, cols))
-                terrain_grid[rr, cc] = ftype
+            # Descomponer geometrías compuestas en primitivas
+            if isinstance(geom, (MultiPolygon, MultiLineString, GeometryCollection)):
+                primitives = list(geom.geoms)
+            else:
+                primitives = [geom]
 
-            elif isinstance(geom, LineString):
-                # Rasterizar línea con puntos intermedios
-                coords = np.array(geom.coords)
-                for k in range(len(coords) - 1):
-                    x0, y0 = coords[k]
-                    x1, y1 = coords[k + 1]
-                    seg_len = np.sqrt((x1 - x0) ** 2 + (y1 - y0) ** 2)
-                    n_pts = max(2, int(seg_len / min(dx, dy)))
-                    xs = np.linspace(x0, x1, n_pts)
-                    ys = np.linspace(y0, y1, n_pts)
-                    cs = np.clip(((xs - minx) / dx).astype(int), 0, cols - 1)
-                    rs = np.clip(((ys - miny) / dy).astype(int), 0, rows - 1)
-                    terrain_grid[rs, cs] = ftype
+            for prim in primitives:
+                if prim is None or prim.is_empty:
+                    continue
 
-            # Puntos: no los rasterizamos (demasiado pequeños para una celda)
+                if isinstance(prim, Polygon):
+                    # Rasterizar polígono entero
+                    coords = np.array(prim.exterior.coords)
+                    img_c = ((coords[:, 0] - minx) / dx).astype(int)
+                    img_r = ((coords[:, 1] - miny) / dy).astype(int)
+                    rr, cc = ski_polygon(img_r, img_c, shape=(rows, cols))
+                    terrain_grid[rr, cc] = ftype
+
+                elif isinstance(prim, LineString):
+                    # Rasterizar línea con puntos intermedios
+                    coords = np.array(prim.coords)
+                    for k in range(len(coords) - 1):
+                        x0, y0 = coords[k]
+                        x1, y1 = coords[k + 1]
+                        seg_len = np.sqrt((x1 - x0) ** 2 + (y1 - y0) ** 2)
+                        n_pts = max(2, int(seg_len / min(dx, dy)))
+                        xs = np.linspace(x0, x1, n_pts)
+                        ys = np.linspace(y0, y1, n_pts)
+                        cs = np.clip(((xs - minx) / dx).astype(int), 0, cols - 1)
+                        rs = np.clip(((ys - miny) / dy).astype(int), 0, rows - 1)
+                        terrain_grid[rs, cs] = ftype
+
+                # Puntos: no los rasterizamos (demasiado pequeños para una celda)
 
     return terrain_grid
 

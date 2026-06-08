@@ -73,17 +73,17 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def run_swarm(item, config, seed) -> tuple[list, dict]:
-    """Run the swarm simulator and return (paths, coverage_summary)."""
+def run_swarm(item, config, seed) -> SwarmSimulator:
+    """Run the swarm simulator and return the completed SwarmSimulator."""
     simulator = SwarmSimulator.from_dataset_item(item, config, seed=seed)
     simulator.run()
     return simulator
 
 
-def run_baselines(item, victims_gdf, args) -> dict[str, dict]:
+def run_baselines(args) -> pd.DataFrame:
     """
     Run existing baseline algorithms through ComparativeEvaluator
-    and return {algorithm_name: metrics_dict}.
+    and return the results DataFrame.
     """
     evaluator = ComparativeEvaluator(
         dataset_directory=args.dataset,
@@ -228,7 +228,7 @@ def main() -> None:
 
     # ── 4. Run baseline algorithms ───────────────────────────────────
     log.info("Running baseline evaluations ...")
-    baseline_results = run_baselines(item, victims_gdf, args)
+    baseline_results = run_baselines(args)
     log.info(f"Baselines done: {len(baseline_results)} algorithm×size combos")
 
     # ── 5. Build comparison table ────────────────────────────────────
