@@ -54,6 +54,8 @@ Unmanned Aerial Vehicles (UAVs) play an increasingly vital role in wilderness se
 
 ### 🤖 Multi-agent Swarm Extension
 
+> Full technical documentation: **[sarenv/swarm/README.md](sarenv/swarm/README.md)**
+
 - **Heterogeneous teams**: UAV drones + ground robot dogs with distinct mobility profiles
 - **Decentralised coordination**: Virtual pheromone fields and epidemic gossip protocol (no central controller)
 - **Bio-inspired exploration**: Attraction, repulsion, and anti-revisit mechanisms (Parunak 2002, Reynolds 1987)
@@ -331,7 +333,7 @@ SAREnv/
 │   │   └── evaluator.py        # Comparative evaluation framework
 │   ├── core/                   # Dataset generation and loading
 │   ├── utils/                  # Geospatial and plotting utilities
-│   └── swarm/                  # Multi-agent swarm extension
+│   └── swarm/                  # Multi-agent swarm extension → see sarenv/swarm/README.md
 │       ├── config.py           # SwarmConfig, DroneConfig, RobotDogConfig
 │       ├── agents.py           # DroneAgent, RobotDogAgent
 │       ├── simulator.py        # Tick-based simulation loop

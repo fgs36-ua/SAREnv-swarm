@@ -125,7 +125,8 @@ Prioridad 3  →  Scoring greedy sobre celdas alcanzables:
 
     score(c) = prob(c)
              × (1 − exploration(c))
-             − repulsion(c)              # feromonas de presencia de peers
+             − repulsion(c)              # 1/d^p sobre vecinos en comm_range
+             − presence_penalty(c)       # feromona de presencia estigmérgica
              + exploration_bonus         # bonus para celdas nunca vistas
              + dispersal(c)              # Boids-separation con peers en gossip
              − ever_explored_penalty(c)  # hard-mask si ya fue explorada
@@ -140,8 +141,8 @@ Prioridad 4  →  Fallback: paso aleatorio entre vecinos alcanzables
 |---|---|---|
 | Radio de detección | `altitude × tan(fov/2)` (~33 m a 80 m / 45°) | `sensor_range` fijo (20 m) |
 | Coste de movimiento | `grid.dx` por celda (terreno plano) | `grid.dx × traversability_cost[terrain]` |
-| Detección modulada | No (aire libre) | Sí, por tipo de terreno (`DETECTION_MODIFIERS`) |
-| Pendiente máxima | Sin límite | `max_slope` (30° por defecto) |
+| Detección modulada | Sí, peor en bosque por el dosel (`DETECTION_MODIFIERS["drone"]`, `woodland`≈0.15) | Sí, por tipo de terreno (`DETECTION_MODIFIERS["robot_dog"]`) |
+| Pendiente máxima | Sin límite | `max_slope` (30°, definido pero no aplicado aún) |
 
 ---
 
