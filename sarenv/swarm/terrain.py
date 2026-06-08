@@ -22,6 +22,20 @@ if TYPE_CHECKING:
     import geopandas as gpd
 
 
+def _iter_primitives(geom):
+    """Genera recursivamente todas las primitivas (Polygon, LineString) de una geometría.
+
+    Descompone MultiPolygon, MultiLineString y GeometryCollection de forma
+    recursiva para cubrir colecciones anidadas producidas por operaciones OSM.
+    """
+    if isinstance(geom, (MultiPolygon, MultiLineString, GeometryCollection)):
+        for part in geom.geoms:
+            yield from _iter_primitives(part)
+    elif isinstance(geom, (Polygon, LineString)):
+        yield geom
+    # Otros tipos (Point, MultiPoint…) se ignoran
+
+
 # -- Modificadores de detección por tipo de agente y terreno --
 # Valores en [0, 1]: 1.0 = detección perfecta, 0.0 = invisible
 
@@ -114,13 +128,7 @@ def _rasterize_features(
             if geom is None or geom.is_empty:
                 continue
 
-            # Descomponer geometrías compuestas en primitivas
-            if isinstance(geom, (MultiPolygon, MultiLineString, GeometryCollection)):
-                primitives = list(geom.geoms)
-            else:
-                primitives = [geom]
-
-            for prim in primitives:
+            for prim in _iter_primitives(geom):
                 if prim is None or prim.is_empty:
                     continue
 
